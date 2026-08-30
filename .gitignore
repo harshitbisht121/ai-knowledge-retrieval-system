@@ -16,8 +16,8 @@ backend/metadata/documents.json
 # -------------------------
 # Frontend
 # -------------------------
-Frontend/node_modules/
-Frontend/dist/
+frontend/node_modules/
+frontend/dist/
 
 # -------------------------
 # Environment files
@@ -36,3 +36,8 @@ Frontend/dist/
 # -------------------------
 .DS_Store
 Thumbs.db
+
+# -------------------------
+# MySQL Database
+# -------------------------
+backend/memory.db

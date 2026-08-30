@@ -1,7 +1,44 @@
-from fastapi import APIRouter, HTTPException
+"""
+Milestone 3 - Query API.
+
+Flow:
+
+    FastAPI
+        ↓
+    Database Session
+        ↓
+    LangGraph Workflow
+        ↓
+    Conversation Memory
+        ↓
+    Query Understanding
+        ↓
+    Conditional Routing
+        ├── Retrieval
+        │     ↓
+        │  Response Generation
+        │
+        └── Clarification
+              ↓
+          Refined Query
+              ↓
+           Retrieval
+              ↓
+       Response Generation
+              ↓
+        Save Conversation
+
+The existing Milestone 2 response structure is preserved.
+"""
+
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
 
 from app.models.request_models import QueryRequest
 from app.orchestration.workflow import run_workflow
+from app.core.database import get_db
 
 
 router = APIRouter(
@@ -9,37 +46,37 @@ router = APIRouter(
 )
 
 
+# ---------------------------------------------------------------------
+# POST /query
+# ---------------------------------------------------------------------
+
 @router.post(
     "/query",
     summary="Query Documents",
     description=(
-        "Run the complete Milestone 2 LangGraph workflow.\n\n"
+        "Run the Milestone 2 + Milestone 3 LangGraph workflow.\n\n"
         "Flow: "
-        "FastAPI → LangGraph Workflow → Query Understanding → "
-        "Query Routing → Retrieval → Response Generation → "
-        "Final Response"
+        "FastAPI → Conversation Memory → Query Understanding → "
+        "Conditional Routing → Retrieval / Clarification → "
+        "Response Generation → Conversation Memory"
     ),
 )
 def query_documents(
     request: QueryRequest,
+    db: Session = Depends(get_db),
 ):
     """
-    Run the complete Milestone 2 LangGraph workflow.
+    Execute the complete M2 + M3 query workflow.
 
-    Flow:
-        FastAPI
-        ->
-        LangGraph Workflow
-        ->
-        Query Understanding
-        ->
-        Query Routing
-        ->
-        Retrieval
-        ->
-        Response Generation
-        ->
-        Final Response
+    Milestone 2 remains backward compatible.
+
+    A request without conversation_id behaves like the existing
+    single-query M2 workflow.
+
+    A request with conversation_id enables conversation memory.
+
+    Clarification fields are used when continuing a previous
+    clarification interaction.
     """
 
     # -------------------------------------------------------------
@@ -49,21 +86,33 @@ def query_documents(
     if request.k < 1:
         raise HTTPException(
             status_code=400,
-            detail="k must be at least 1",
+            detail="k must be at least 1.",
         )
 
+    # -------------------------------------------------------------
+    # Run workflow
+    # -------------------------------------------------------------
+
     try:
-        # ---------------------------------------------------------
-        # Run the complete LangGraph workflow
-        # ---------------------------------------------------------
 
         result = run_workflow(
             query=request.query,
             k=request.k,
+            conversation_id=request.conversation_id,
+            clarification_answer=(
+                request.clarification_answer
+            ),
+            clarification_question=(
+                request.clarification_question
+            ),
+            original_query=(
+                request.original_query
+            ),
+            db=db,
         )
 
         # ---------------------------------------------------------
-        # Handle workflow-level errors
+        # Workflow-level errors
         # ---------------------------------------------------------
 
         if result.get("error"):
@@ -73,7 +122,7 @@ def query_documents(
             )
 
         # ---------------------------------------------------------
-        # Extract Query Understanding result
+        # Query Understanding result
         # ---------------------------------------------------------
 
         query_analysis = result.get(
@@ -88,17 +137,58 @@ def query_documents(
             )
 
         # ---------------------------------------------------------
-        # Return final Milestone 2 response
+        # Clarification information
+        # ---------------------------------------------------------
+
+        clarification_required = result.get(
+            "clarification_required",
+            False,
+        )
+
+        clarification_question = result.get(
+            "clarification_question"
+        )
+
+        # ---------------------------------------------------------
+        # Final response
         # ---------------------------------------------------------
 
         return {
             "success": True,
+
             "query": request.query,
-            "query_understanding": query_understanding,
-            "route": result.get("route"),
-            "route_reason": result.get("route_reason"),
-            "retrieval": result.get("retrieval_result"),
-            "response": result.get("response"),
+
+            "conversation_id": result.get(
+                "conversation_id"
+            ),
+
+            "query_understanding": (
+                query_understanding
+            ),
+
+            "route": result.get(
+                "route"
+            ),
+
+            "route_reason": result.get(
+                "route_reason"
+            ),
+
+            "clarification_required": (
+                clarification_required
+            ),
+
+            "clarification_question": (
+                clarification_question
+            ),
+
+            "retrieval": result.get(
+                "retrieval_result"
+            ),
+
+            "response": result.get(
+                "response"
+            ),
         }
 
     except HTTPException:
@@ -116,4 +206,4 @@ def query_documents(
             detail=(
                 f"Query processing failed: {error}"
             ),
-        )
+        ) from error

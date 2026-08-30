@@ -15,3 +15,6 @@ uvicorn==0.52.1
 python-multipart
 
 python-dotenv
+
+SQLAlchemy
+PyMySQL
