@@ -1,5 +1,5 @@
 """
-Milestone 3 - Query API.
+Milestone 3 - Query API with Response Transparency.
 
 Flow:
 
@@ -25,10 +25,12 @@ Flow:
            Retrieval
               ↓
        Response Generation
-              ↓
-        Save Conversation
-
-The existing Milestone 2 response structure is preserved.
+        ↓
+    Save Conversation
+        ↓
+    Response Transparency
+        ↓
+    Final JSON Response
 """
 
 from __future__ import annotations
@@ -39,6 +41,7 @@ from sqlalchemy.orm import Session
 from app.models.request_models import QueryRequest
 from app.orchestration.workflow import run_workflow
 from app.core.database import get_db
+from app.transparency.service import build_transparency
 
 
 router = APIRouter(
@@ -46,19 +49,12 @@ router = APIRouter(
 )
 
 
-# ---------------------------------------------------------------------
-# POST /query
-# ---------------------------------------------------------------------
-
 @router.post(
     "/query",
     summary="Query Documents",
     description=(
-        "Run the Milestone 2 + Milestone 3 LangGraph workflow.\n\n"
-        "Flow: "
-        "FastAPI → Conversation Memory → Query Understanding → "
-        "Conditional Routing → Retrieval / Clarification → "
-        "Response Generation → Conversation Memory"
+        "Run the Milestone 2 + Milestone 3 LangGraph workflow "
+        "with conversation memory, clarification, and response transparency."
     ),
 )
 def query_documents(
@@ -66,12 +62,10 @@ def query_documents(
     db: Session = Depends(get_db),
 ):
     """
-    Execute the complete M2 + M3 query workflow.
+    Execute the complete M3 query workflow.
 
-    Milestone 2 remains backward compatible.
-
-    A request without conversation_id behaves like the existing
-    single-query M2 workflow.
+    A request without conversation_id remains compatible with
+    the earlier single-query workflow.
 
     A request with conversation_id enables conversation memory.
 
@@ -79,22 +73,15 @@ def query_documents(
     clarification interaction.
     """
 
-    # -------------------------------------------------------------
-    # Validate request
-    # -------------------------------------------------------------
-
+    # Validate retrieval count.
     if request.k < 1:
         raise HTTPException(
             status_code=400,
             detail="k must be at least 1.",
         )
 
-    # -------------------------------------------------------------
-    # Run workflow
-    # -------------------------------------------------------------
-
     try:
-
+        # Execute the existing M3 LangGraph workflow.
         result = run_workflow(
             query=request.query,
             k=request.k,
@@ -111,20 +98,14 @@ def query_documents(
             db=db,
         )
 
-        # ---------------------------------------------------------
-        # Workflow-level errors
-        # ---------------------------------------------------------
-
+        # Return workflow-level failures as API errors.
         if result.get("error"):
             raise HTTPException(
                 status_code=500,
                 detail=result["error"],
             )
 
-        # ---------------------------------------------------------
-        # Query Understanding result
-        # ---------------------------------------------------------
-
+        # Convert QueryUnderstandingResult into JSON-safe data.
         query_analysis = result.get(
             "query_analysis"
         )
@@ -136,10 +117,7 @@ def query_documents(
                 query_analysis.model_dump()
             )
 
-        # ---------------------------------------------------------
-        # Clarification information
-        # ---------------------------------------------------------
-
+        # Get clarification information.
         clarification_required = result.get(
             "clarification_required",
             False,
@@ -149,13 +127,24 @@ def query_documents(
             "clarification_question"
         )
 
-        # ---------------------------------------------------------
-        # Final response
-        # ---------------------------------------------------------
+        # Get retrieval and generated-response data.
+        retrieval_result = result.get(
+            "retrieval_result"
+        )
+
+        response_result = result.get(
+            "response"
+        )
+
+        # Build the dedicated transparency object from retrieval data.
+        transparency = build_transparency(
+            retrieval_result
+        )
 
         return {
             "success": True,
 
+            # Preserve the original user query in the API response.
             "query": request.query,
 
             "conversation_id": result.get(
@@ -182,13 +171,12 @@ def query_documents(
                 clarification_question
             ),
 
-            "retrieval": result.get(
-                "retrieval_result"
-            ),
+            "retrieval": retrieval_result,
 
-            "response": result.get(
-                "response"
-            ),
+            "response": response_result,
+
+            # Dedicated Response Transparency information.
+            "transparency": transparency,
         }
 
     except HTTPException:
@@ -198,7 +186,7 @@ def query_documents(
         raise HTTPException(
             status_code=400,
             detail=str(error),
-        )
+        ) from error
 
     except Exception as error:
         raise HTTPException(
