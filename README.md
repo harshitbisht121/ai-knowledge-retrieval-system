@@ -108,6 +108,12 @@ AI-Based Knowledge Retrieval Platform with Query Resolution System/
 │   │   │   ├── output.py
 │   │   │   ├── schemas.py
 │   │   │   └── service.py
+│   │   ├── transparency/
+│   │   │   ├── __init__.py
+│   │   │   ├── schemas.py
+│   │   │   └── service.py
+│   │   ├── test/
+│   │   │   └── test_memory.py
 │   │   └── orchestration/
 │   │       ├── state.py
 │   │       ├── nodes.py
@@ -119,8 +125,7 @@ AI-Based Knowledge Retrieval Platform with Query Resolution System/
 │   ├── .env
 │   ├── .env.example
 │   ├── requirements.txt
-│   ├── create_memory_tables.py
-│   └── test_retrieval_agent.py
+│   └── create_memory_tables.py
 ├── frontend/
 │   ├── public/
 │   ├── src/
@@ -261,6 +266,10 @@ Browser Speech Synthesis
 The backend receives text, not microphone audio, in the current architecture.
 
 ### Response Transparency
+The backend also contains a dedicated transparency service at `backend/app/transparency/`. It converts the existing retrieval result into structured evidence containing the source document, optional page, chunk ID, retrieved content, relevance score and a human-readable citation. It also returns a transparency-specific confidence value and `High`/`Medium`/`Low` confidence level.
+
+`query.py` adds this object to the normal `/query` response under `transparency`; it does not replace the existing `response.confidence` or create a separate retrieval pipeline. No standalone `/transparency` request is required in the current architecture.
+
 The frontend exposes:
 
 - generated answer
@@ -444,7 +453,10 @@ clarification_required
 clarification_question
 retrieval
 response
+transparency
 ```
+
+The `transparency` object is built from the existing retrieval results and contains structured evidence such as source document, optional page, chunk ID, content, relevance score, citation, transparency confidence and confidence level.
 
 For a normal answer:
 
@@ -557,6 +569,9 @@ The current Milestone 3 implementation has been validated with:
 - frontend memory-enabled query submission
 - browser Web Speech API integration in ChatPage
 - speech transcript submission through the normal `/query` path
+- dedicated transparency object generation from existing retrieval results
+- transparency source/chunk evidence and confidence-level mapping
+- Conversation Memory integration testing through `backend/app/test/test_memory.py`
 
 ## Troubleshooting
 

@@ -249,6 +249,14 @@ AI-Based Knowledge Retrieval Platform with Query Resolution System/
 │   │   │   ├── schemas.py                       # Voice request/response schemas
 │   │   │   └── service.py                       # Voice module coordinator
 │   │   │
+│   │   ├── transparency/                        # Milestone 3 response transparency
+│   │   │   ├── __init__.py
+│   │   │   ├── schemas.py                       # Transparency response schemas
+│   │   │   └── service.py                       # Transparency/evidence builder
+│   │   │
+│   │   ├── test/                                 # Application-level tests
+│   │   │   └── test_memory.py                    # Conversation memory integration test
+│   │   │
 │   │   ├── orchestration/                       # LangGraph orchestration
 │   │   │   ├── __init__.py
 │   │   │   ├── state.py                         # Shared workflow state
@@ -265,8 +273,7 @@ AI-Based Knowledge Retrieval Platform with Query Resolution System/
 │   ├── .env                                     # Local secrets/config (ignored)
 │   ├── .env.example                             # Environment variable template
 │   ├── requirements.txt                         # Python dependencies
-│   ├── create_memory_tables.py                  # Create conversation tables
-│   └── test_retrieval_agent.py                  # Retrieval integration test
+│   └── create_memory_tables.py                  # Create conversation tables
 │
 ├── frontend/
 │   ├── public/                                  # Static public assets
@@ -490,7 +497,7 @@ The presentation layer. Routers validate HTTP requests and delegate work to serv
 ### `app/services/`
 - `document_service.py`: Document listing/deletion business logic.
 - `metadata_service.py`: JSON metadata and processing status.
-- `query_service.py`: Retained as the Milestone 1 baseline for comparison/backward compatibility; it is not the main Milestone 3 orchestration entry point.
+- ``query_service.py`: Retained as the Milestone 1 baseline for comparison/backward compatibility; it is not the main Milestone 3 orchestration entry point.
 - `upload_service.py`: Document ingestion pipeline.
 
 ### `app/agents/query_understanding/`
@@ -552,6 +559,42 @@ Responsibilities:
 - Provide voice request/response schemas.
 
 The current integrated frontend uses the transcript as an ordinary `/query` request rather than requiring a separate audio-processing backend. The backend does not perform microphone capture or speech recognition.
+
+### `app/transparency/`
+The Response Transparency module is a backend service layer, not an AI agent and not a separate retrieval pipeline. It converts the existing retrieval output into a presentation-ready evidence object.
+
+- `schemas.py`: Defines `SourceChunk` and `TransparencyResponse` models containing source document, optional page, chunk ID, content, relevance score, citation, overall confidence, and confidence level.
+- `service.py`: Extracts chunks and metadata from the existing retrieval result, normalizes common content/metadata shapes, generates human-readable citations, calculates transparency confidence from available relevance scores, and assigns `High`, `Medium`, or `Low` confidence levels.
+- `__init__.py`: Exposes `build_transparency()` for the API layer.
+
+The service is invoked after the existing M3 workflow completes. `query.py` adds the resulting `transparency` object to the `/query` response while preserving the existing `response` and `retrieval` fields. The transparency service does not replace Response Generation's existing confidence value and does not change retrieval ranking/filtering.
+
+The integrated transparency flow is:
+
+```text
+Retrieval Result
+      ↓
+transparency.service.build_transparency()
+      ↓
+TransparencyResponse
+      ├── sources
+      │    ├── document
+      │    ├── page
+      │    ├── chunk_id
+      │    ├── content
+      │    ├── relevance_score
+      │    └── citation
+      ├── confidence
+      └── confidence_level
+      ↓
+query.py
+      ↓
+`transparency` in `/query` response
+      ↓
+React Context Inspector / transparency UI
+```
+
+There is no mandatory standalone `/transparency` API route in the current integrated architecture. Keeping transparency behind `/query` avoids an unnecessary second client request and keeps the endpoint contract aligned with the existing RAG workflow.
 
 ### `app/orchestration/`
 
@@ -746,7 +789,8 @@ This preserves the existing Query Understanding Agent interface, which expects a
 7. Retrieval returns ranked context.
 8. Response Generation produces the grounded answer, citations and confidence.
 9. The completed turn is persisted when `conversation_id` exists.
-10. FastAPI returns the final JSON response.
+10. `query.py` builds the Response Transparency object from the existing retrieval result.
+11. FastAPI returns the final JSON response.
 
 ### Voice query
 1. Browser microphone captures speech.
@@ -1062,8 +1106,11 @@ A voice-generated transcript can also enter the clarification path because the t
 
 ## SECTION 16 — RESPONSE TRANSPARENCY
 
+### Purpose
+Response Transparency makes the evidence behind an answer inspectable without introducing a separate retrieval or generation pipeline. The Milestone 3 transparency service consumes the same retrieval results already produced by the Retrieval Agent.
+
 ### Implemented Transparency
-The current UI exposes:
+The current `/query` response and conversational UI expose:
 
 ```text
 Generated Answer
@@ -1072,32 +1119,108 @@ Citation References
     ↓
 Sources Used
     ↓
-Confidence
+Response Confidence
+    ↓
+Transparency Evidence
+    ├── Source Document
+    ├── Optional Page
+    ├── Chunk ID
+    ├── Retrieved Content
+    ├── Relevance Score
+    └── Human-readable Citation
     ↓
 Context Inspector
-    ├── Source Document
-    ├── Chunk ID
-    ├── Relevance Score
-    ├── Semantic Score
-    ├── Metadata
-    └── Raw Retrieved Chunk
 ```
 
-### Canonical Mapping
-`chunk_id` is the canonical identifier used to connect:
+### Transparency Backend Module
+The dedicated module is:
+
+```text
+backend/app/transparency/
+├── __init__.py
+├── schemas.py
+└── service.py
+```
+
+`service.py` accepts the existing retrieval result structure and supports common chunk representations. It extracts:
+
+- source document name from common metadata fields such as `source`, `file_name`, `filename`, or `document`
+- optional page number from `page`, `page_number`, or `page_num`
+- canonical `chunk_id` from chunk/metadata IDs with a safe fallback when no ID exists
+- retrieved content from `page_content`, `content`, or `text`
+- relevance score from `score`, `relevance_score`, or `similarity`, normalized to the range 0–1
+
+It then builds a `TransparencyResponse` containing `sources`, `confidence`, and `confidence_level`.
+
+### Transparency Schemas
+`schemas.py` defines:
+
+```text
+SourceChunk
+├── document
+├── page
+├── chunk_id
+├── content
+├── relevance_score
+└── citation
+
+TransparencyResponse
+├── confidence
+├── confidence_level
+└── sources[]
+```
+
+### Confidence Separation
+The platform intentionally preserves two related but separate values:
+
+```text
+response.confidence
+→ existing Response Generation confidence shown with the generated answer
+
+transparency.confidence
+→ transparency-service confidence derived from retrieved relevance scores
+```
+
+The transparency service does not overwrite the existing Response Generation value.
+
+### Query API Integration
+`query.py` remains the single public query endpoint. After `run_workflow()` returns, it calls `build_transparency(retrieval_result)` and appends the resulting object under the `transparency` key. Existing M2/M3 fields such as `response`, `retrieval`, `conversation_id`, `route`, and clarification information remain unchanged.
+
+### Canonical Source Mapping
+`chunk_id` remains the canonical identifier connecting retrieval evidence to the generated response and the frontend Context Inspector:
 
 ```text
 Retrieval Result
       ↕
 Response Source
       ↕
+Transparency SourceChunk
+      ↕
 Frontend Context Inspector
 ```
 
-This prevents the UI from displaying an unrelated chunk when a user selects a citation.
+### Human-readable Citation
+When a page number is available, the transparency service creates a citation in the form:
 
-### Confidence
-Confidence is produced by Response Generation based on the retrieved context and is displayed by the frontend. It should be interpreted as a model/application indicator, not as a guarantee of factual correctness.
+```text
+<document>, page <number>
+```
+
+When no page number is available, the document name is used as the citation.
+
+### Confidence Level
+The transparency service maps its numerical confidence to a simple label:
+
+```text
+confidence >= 0.80 → High
+confidence >= 0.60 → Medium
+otherwise          → Low
+```
+
+The confidence-level label is intended for user-facing transparency and is not a guarantee of factual correctness.
+
+### Architectural Decision
+The current integrated design does not require a standalone `/transparency` request. Transparency is generated from the already available `/query` workflow result, avoiding duplicated retrieval work.
 
 ---
 
@@ -1319,7 +1442,10 @@ clarification_required
 clarification_question
 retrieval
 response
+transparency
 ```
+
+The `transparency` object is built from the existing retrieval result and preserves source evidence without changing the core M2/M3 retrieval or response-generation path.
 
 For a normal resolved query, `response` contains:
 
@@ -1459,30 +1585,12 @@ Validated end-to-end through the React frontend:
 
 ### Response Transparency
 Validated that:
-- citations remain attached to generated answers
-- sources contain the retrieved `chunk_id`
-- retrieval results expose relevance information
-- the Context Inspector opens the corresponding retrieved chunk
-- semantic/relevance information is visible to the user
-
----
-
-## SECTION 24 — ERROR HANDLING
-
-- Query validation is handled by FastAPI/Pydantic and explicit `k >= 1` checks.
-- Query Understanding failures are captured by workflow state.
-- Retrieval failures are captured by workflow state.
-- Response Generation handles empty retrieval context with an insufficient-information response and zero confidence.
-- Memory failures are captured by workflow state and surfaced through the API.
-- Missing MySQL availability prevents memory-enabled conversation operations and must be resolved by starting the MySQL server.
-- The API converts workflow failures into appropriate HTTP errors.
-- Clarification responses are returned separately from final RAG answers.
-- Low-confidence retrieval results are filtered rather than passed to Response Generation as unsupported evidence.
-- Browser speech-recognition errors are surfaced in the frontend without being treated as backend RAG failures.
-
----
-
-## SECTION 25 — DEVELOPMENT WORKFLOW
+- the transparency service consumes the existing retrieval result without changing retrieval behavior
+- source document, optional page, chunk ID, retrieved content and relevance information are exposed as transparency evidence
+- human-readable citations are generated from available source metadata
+- transparency confidence and confidence level are returned separately from the existing response confidence
+- the `/query` response includes a dedicated `transparency` object without removing existing M2/M3 fields
+- the Context Inspector can continue to inspect the corresponding retrieved chunk
 
 ### New agent
 Create a new package under `app/agents/` with its own implementation and schemas.
@@ -1687,7 +1795,8 @@ Tell me more about that.
 - Browser Web Speech API speech-to-text.
 - Browser Speech Synthesis text-to-speech integration path.
 - Voice transcript submission through the normal `/query` workflow.
-- Response transparency through source citations, confidence and Context Inspector.
+- Response transparency through source citations, relevance evidence, transparency confidence, and Context Inspector.
+- Dedicated `app/transparency/` service integrated into `/query` without replacing the existing M3 response confidence.
 - Frontend handling of clarification responses and conversation IDs.
 
 ### Not part of the currently validated core flow
