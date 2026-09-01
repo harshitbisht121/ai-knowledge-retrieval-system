@@ -42,6 +42,7 @@ from app.models.request_models import QueryRequest
 from app.orchestration.workflow import run_workflow
 from app.core.database import get_db
 from app.transparency.service import build_transparency
+from app.voice.output import prepare_speech_text
 
 
 router = APIRouter(
@@ -141,6 +142,14 @@ def query_documents(
             retrieval_result
         )
 
+        speech_text = (
+            prepare_speech_text(
+                response_result.get("answer", "")
+            )
+            if response_result
+            else None
+        )
+
         return {
             "success": True,
 
@@ -174,6 +183,8 @@ def query_documents(
             "retrieval": retrieval_result,
 
             "response": response_result,
+
+            "speech_text": speech_text,
 
             # Dedicated Response Transparency information.
             "transparency": transparency,

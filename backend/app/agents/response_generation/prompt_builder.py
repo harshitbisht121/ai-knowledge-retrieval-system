@@ -194,21 +194,36 @@ LIST AND COMPLETENESS RULES:
     say that the available context is incomplete instead of guessing.
 
 CITATION RULES:
-15. Cite factual claims using [1], [2], [3], etc.
-16. Use only citation numbers that actually exist in the retrieved
-    context.
-17. Never invent or guess a citation number.
-18. Use the citation corresponding to the chunk that supports the claim.
-19. If several retrieved chunks support the answer, cite the relevant
-    chunks.
-20. Keep citation formatting exactly like [1], [2], [3].
-21. Do not use Unicode citation brackets such as 【1】.
+15. Cite factual claims using the source labels assigned by this prompt:
+    [1], [2], [3], etc.
+16. The numbers [1], [2], [3], etc. refer ONLY to the retrieved
+    context blocks created by this system.
+17. IMPORTANT: Citation/reference numbers that appear inside the
+    retrieved document content are part of the document itself.
+    They are NOT source labels for this answer.
+18. Never copy citation or reference numbers found inside the document
+    text. For example, if a retrieved document contains "[7]" or
+    "[7, 8]", do not use those numbers as citations unless the
+    corresponding retrieved context block is actually numbered [7] or
+    [8].
+19. Use only source labels that exist in the retrieved context blocks.
+20. Every citation must correspond to the retrieved chunk that directly
+    supports the factual claim.
+21. If multiple retrieved chunks support the answer, cite each relevant
+    context-block label.
+22. Never invent, guess, or derive citation numbers from the document
+    content.
+23. Keep citation formatting exactly like [1], [2], [3].
+24. Do not use Unicode citation brackets such as 【1】.
+25. Do not cite the document's own bibliography, footnotes, numbered
+    references, list numbers, or cross-references as if they were
+    retrieved-context source labels.
 
 ANSWER STYLE:
-22. Be concise and direct.
-23. For a numbered list in the source, preserve the numbered-list
+26. Be concise and direct.
+27. For a numbered list in the source, preserve the numbered-list
     structure when practical.
-24. Do not mention retrieval internals unless necessary to explain
+28. Do not mention retrieval internals unless necessary to explain
     why the requested information is unavailable.
 
 Retrieved Context:

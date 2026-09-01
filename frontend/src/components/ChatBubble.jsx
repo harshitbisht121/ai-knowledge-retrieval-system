@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 
 export default function ChatBubble({ message, onSelectSource }) {
-  const { sender, text, sources, confidence, timestamp } = message;
+  const { sender, text, sources, timestamp } = message;
   const isUser = sender === 'user';
   const [copied, setCopied] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -13,7 +13,17 @@ export default function ChatBubble({ message, onSelectSource }) {
     
     window.speechSynthesis.cancel();
     
-    const utterance = new SpeechSynthesisUtterance(text);
+    const speechText = (
+      message.speech_text ||
+      text
+    )
+      .replace(/\[\s*\d+(?:\s*,\s*\d+)*\s*\]/g, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+
+    const utterance = new SpeechSynthesisUtterance(
+      speechText
+    );
     
     utterance.onstart = () => {
       setIsSpeaking(true);
@@ -264,11 +274,6 @@ export default function ChatBubble({ message, onSelectSource }) {
           </div>
         )}
 
-        {!isUser && Number.isFinite(Number(confidence)) && (
-          <div style={{ marginTop: '12px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-            Answer confidence: <strong style={{ color: 'var(--accent-emerald)' }}>{Math.round(Number(confidence) * 100)}%</strong>
-          </div>
-        )}
       </div>
     </div>
   );

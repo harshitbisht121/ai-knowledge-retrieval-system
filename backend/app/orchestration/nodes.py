@@ -355,23 +355,24 @@ def query_understanding_node(
                 "Query cannot be empty."
             )
 
-        # -------------------------------------------------------------
-        # Resolve follow-up query using conversation memory.
-        #
-        # This happens only when conversation context exists.
-        # -------------------------------------------------------------
+        # Resolve conversation context only for a normal query.
+        # A clarification-refined query is already standalone and
+        # must not be rewritten by memory a second time.
 
         memory_context = state.get(
             "memory_context",
             [],
         )
 
-        resolved_query = _resolve_contextual_query(
-            query=query,
-            memory_context=memory_context,
-        )
+        if state.get("refined_query"):
+            resolved_query = query
+        else:
+            resolved_query = _resolve_contextual_query(
+                query=query,
+                memory_context=memory_context,
+            )
 
-        # Keep original user input for transparency/debugging.
+        # Keep the resolved query in the workflow state.
         result: WorkflowState = {
             **state,
             "query": resolved_query,

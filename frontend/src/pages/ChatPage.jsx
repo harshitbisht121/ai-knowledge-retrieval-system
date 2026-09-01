@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ChatBubble from '../components/ChatBubble';
 import * as api from '../services/api';
+
 import useSpeechRecognition from '../hooks/useSpeechRecognition';
 
 export default function ChatPage() {
@@ -206,6 +207,7 @@ export default function ChatPage() {
       const botMsg = {
         sender: 'bot',
         text: answer,
+        speech_text: response.speech_text,
         sources,
         confidence:
           response.response?.confidence,
