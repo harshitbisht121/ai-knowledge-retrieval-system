@@ -62,7 +62,6 @@ export default function UploadPage({ onStartChat }) {
 
   // Stats calculation
   const totalSize = documents.reduce((acc, curr) => acc + curr.size, 0);
-  const totalChunks = documents.reduce((acc, curr) => acc + (curr.chunksCount || 0), 0);
   const readyDocsCount = documents.filter(d => d.status === 'indexed').length;
 
   return (
@@ -107,18 +106,6 @@ export default function UploadPage({ onStartChat }) {
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
               <line x1="9" y1="3" x2="9" y2="21"/>
-            </svg>
-          </div>
-          <div>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block' }}>Chunks Indexed</span>
-            <span style={{ fontSize: '1.6rem', fontWeight: 700 }}>{totalChunks}</span>
-          </div>
-        </div>
-
-        <div className="glass-card" style={{ padding: '20px', display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'hsla(180, 100%, 50%, 0.1)', color: 'var(--accent-cyan)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
             </svg>
           </div>
           <div>
@@ -211,9 +198,6 @@ export default function UploadPage({ onStartChat }) {
                             <span className="typing-dot" style={{ width: '4px', height: '4px', background: 'currentColor' }}></span>
                             Parsing
                           </span>
-                        )}
-                        {doc.status === 'indexed' && (
-                          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{doc.chunksCount} chunks</span>
                         )}
                       </div>
 

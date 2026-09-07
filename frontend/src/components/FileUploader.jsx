@@ -425,57 +425,10 @@ export default function FileUploader({
     return labels[stage];
   };
 
-
   const getStageDetails = (stage) => {
-    if (
-      !processingStatus
-    ) {
-      return '';
-    }
-
-    if (
-      stage === 'chunking' &&
-      processingStatus.chunksCount
-    ) {
-      return `${processingStatus.chunksCount} chunks created`;
-    }
-
-    if (
-      stage === 'embedding' &&
-      processingStatus.embeddingsCount
-    ) {
-      return `${processingStatus.embeddingsCount} embeddings generated`;
-    }
-
-    if (
-      stage === 'storing' &&
-      processingStatus.vectorsStored
-    ) {
-      return `${processingStatus.vectorsStored} vectors stored`;
-    }
-
-    if (
-      stage === 'completed'
-    ) {
-      const chunks =
-        processingStatus.chunksCount ||
-        0;
-
-      const embeddings =
-        processingStatus.embeddingsCount ||
-        0;
-
-      const vectors =
-        processingStatus.vectorsStored ||
-        0;
-
-      return `${chunks} chunks • ${embeddings} embeddings • ${vectors} vectors`;
-    }
-
     return '';
   };
-
-
+  
   const renderProcessingStage = (
     stage
   ) => {
@@ -985,46 +938,6 @@ export default function FileUploader({
             >
               {fileName}
             </p>
-
-            <div
-              style={{
-                display:
-                  'flex',
-                justifyContent:
-                  'center',
-                gap: '18px',
-                flexWrap:
-                  'wrap',
-                fontSize:
-                  '0.8rem',
-                color:
-                  'var(--text-secondary)',
-              }}
-            >
-              <span>
-                <strong>
-                  {processingStatus?.chunksCount ||
-                    0}
-                </strong>{' '}
-                chunks
-              </span>
-
-              <span>
-                <strong>
-                  {processingStatus?.embeddingsCount ||
-                    0}
-                </strong>{' '}
-                embeddings
-              </span>
-
-              <span>
-                <strong>
-                  {processingStatus?.vectorsStored ||
-                    0}
-                </strong>{' '}
-                vectors
-              </span>
-            </div>
 
             <button
               type="button"

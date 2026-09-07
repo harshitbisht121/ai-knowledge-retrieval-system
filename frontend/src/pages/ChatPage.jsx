@@ -1,301 +1,1332 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, {
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
+
 import ChatBubble from '../components/ChatBubble';
+import useSpeechRecognition from '../hooks/useSpeechRecognition';
 import * as api from '../services/api';
 
-import useSpeechRecognition from '../hooks/useSpeechRecognition';
+
+/* =================================================================
+   Constants
+   ================================================================= */
+
+const WELCOME_MESSAGE = {
+  sender: 'bot',
+  text:
+    'Hello! I am your RAG Chatbot Assistant. Ask me anything about the files in your knowledge base.',
+  timestamp: new Date().toISOString(),
+};
+
+
+/* =================================================================
+   Main Component
+   ================================================================= */
 
 export default function ChatPage() {
-  const [messages, setMessages] = useState([
-    {
-      sender: 'bot',
-      text: "Hello! I am your RAG Chatbot Assistant. Ask me anything about the files in your knowledge base.",
-      timestamp: new Date().toISOString()
-    }
-  ]);
 
-  const [inputValue, setInputValue] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
-  const [selectedSource, setSelectedSource] = useState(null);
-  const [currentResults, setCurrentResults] = useState([]);
-  const [conversationId, setConversationId] = useState(null);
-  const [conversationReady, setConversationReady] = useState(false);
+  /* ----------------------------------------------------------------
+     Conversation state
+     ---------------------------------------------------------------- */
 
-  const startTextRef = useRef('');
-  const chatEndRef = useRef(null);
+  const [
+    conversationId,
+    setConversationId,
+  ] = useState(null);
+
+  const [
+    conversations,
+    setConversations,
+  ] = useState([]);
+
+  const [
+    loadingConversation,
+    setLoadingConversation,
+  ] = useState(true);
+
+  const [
+    conversationError,
+    setConversationError,
+  ] = useState(null);
+
+
+  /* ----------------------------------------------------------------
+     Chat state
+     ---------------------------------------------------------------- */
+
+  const [
+    messages,
+    setMessages,
+  ] = useState([]);
+
+  const [
+    inputValue,
+    setInputValue,
+  ] = useState('');
+
+  const [
+    isTyping,
+    setIsTyping,
+  ] = useState(false);
+
+  const [
+    selectedSource,
+    setSelectedSource,
+  ] = useState(null);
+
+  const [
+    currentResults,
+    setCurrentResults,
+  ] = useState([]);
+
+
+  /* ----------------------------------------------------------------
+     Speech state
+     ---------------------------------------------------------------- */
+
+  const startTextRef =
+    useRef('');
+
+  const chatEndRef =
+    useRef(null);
+
+
+  /* =================================================================
+     Speech Recognition
+     ================================================================= */
+
+  const handleSpeechResult =
+    (transcript) => {
+      setInputValue(
+        startTextRef.current +
+          (
+            startTextRef.current &&
+            transcript
+              ? ' '
+              : ''
+          ) +
+          transcript
+      );
+    };
+
 
   const {
     isListening,
     error: speechError,
-    supported,
+    supported: speechSupported,
     startListening,
     stopListening,
-    setError: setSpeechError
+    setError: setSpeechError,
   } = useSpeechRecognition({
-    onResult: (transcript) => {
-      setInputValue(
-        startTextRef.current +
-        (startTextRef.current && transcript ? ' ' : '') +
-        transcript
-      );
-    },
-    lang: 'en-US'
+    onResult:
+      handleSpeechResult,
+    lang: 'en-US',
   });
 
-  // Create a persistent backend conversation for this chat session.
-  const createNewConversation = async () => {
-    try {
-      setConversationReady(false);
 
-      const response = await api.createConversation();
-
-      if (!response?.conversation_id) {
-        throw new Error(
-          'Backend did not return a conversation ID.'
-        );
-      }
-
-      setConversationId(
-        response.conversation_id
-      );
-
-      setConversationReady(true);
-
-      return response.conversation_id;
-    } catch (error) {
-      console.error(
-        'Failed to create conversation:',
-        error
-      );
-
-      setConversationId(null);
-      setConversationReady(false);
-
-      throw error;
-    }
-  };
-
-  // Create the conversation when ChatPage opens.
-  useEffect(() => {
-    createNewConversation().catch(() => {
-      setMessages([
-        {
-          sender: 'bot',
-          text: "I couldn't initialize the conversation. Please make sure the backend is running.",
-          timestamp: new Date().toISOString()
-        }
-      ]);
-    });
-  }, []);
-
-  const handleMicClick = () => {
-    if (!supported) {
-      setSpeechError(
-        'Speech recognition is not supported in this browser. Please use a supported browser or type your question.'
-      );
-      return;
-    }
-
-    if (isListening) {
-      stopListening();
-    } else {
-      startTextRef.current = inputValue;
-      startListening();
-    }
-  };
+  /* =================================================================
+     Scroll
+     ================================================================= */
 
   const scrollToBottom = () => {
     chatEndRef.current?.scrollIntoView({
-      behavior: 'smooth'
+      behavior: 'smooth',
     });
   };
 
+
   useEffect(() => {
     scrollToBottom();
-  }, [messages, isTyping]);
+  }, [
+    messages,
+    isTyping,
+  ]);
 
-  const handleSend = async (textToSend) => {
-    stopListening();
 
-    const text = (
-      textToSend || inputValue
-    ).trim();
+  /* =================================================================
+     Helpers
+     ================================================================= */
 
-    if (!text || isTyping) {
-      return;
-    }
+  const getSourceIdentifier =
+    (source) => {
 
-    // Do not send queries until the backend conversation exists.
-    if (!conversationReady || !conversationId) {
-      return;
-    }
+      if (!source) {
+        return null;
+      }
 
-    if (!textToSend) {
-      setInputValue('');
-    }
+      if (
+        typeof source === 'string'
+      ) {
+        return source;
+      }
 
-    const userMsg = {
-      sender: 'user',
-      text,
-      timestamp: new Date().toISOString()
+      return (
+        source.chunk_id ||
+        source.id ||
+        source.source ||
+        source.document_chunk_id ||
+        null
+      );
     };
 
-    setMessages((prev) => [
-      ...prev,
-      userMsg
-    ]);
 
-    setIsTyping(true);
+  const normalizeMessageMetadata =
+    (metadata) => {
 
-    try {
-      // Keep frontend history for compatibility/debugging.
-      const history = messages.map((m) => ({
-        role:
-          m.sender === 'user'
-            ? 'user'
-            : 'assistant',
-        content: m.text
-      }));
+      if (!metadata) {
+        return {};
+      }
 
-      // Send the conversation ID so the backend can load/save memory.
-      const response =
-        await api.sendChatMessage(
-          text,
-          history,
-          conversationId
+      if (
+        typeof metadata === 'object'
+      ) {
+        return metadata;
+      }
+
+      if (
+        typeof metadata === 'string'
+      ) {
+        try {
+          const parsed =
+            JSON.parse(metadata);
+
+          return (
+            parsed &&
+            typeof parsed === 'object'
+          )
+            ? parsed
+            : {};
+        } catch {
+          return {};
+        }
+      }
+
+      return {};
+    };
+
+
+  /* =================================================================
+     Convert backend message
+     ================================================================= */
+
+  const convertBackendMessage =
+    (message) => {
+
+      const metadata =
+        normalizeMessageMetadata(
+          message?.message_metadata
         );
 
-      // -------------------------------------------------------------
-      // Handle clarification responses.
-      // -------------------------------------------------------------
 
-      if (response.clarification_required) {
-        const clarificationQuestion =
-          response.clarification_question ||
-          'Could you please clarify your question?';
+      return {
+        id: message?.id,
 
-        const clarificationMsg = {
-          sender: 'bot',
-          text: clarificationQuestion,
-          timestamp: new Date().toISOString()
-        };
+        sender:
+          message?.role === 'user'
+            ? 'user'
+            : 'bot',
 
-        setMessages((prev) => [
-          ...prev,
-          clarificationMsg
-        ]);
+        text:
+          message?.content || '',
 
+        timestamp:
+          message?.created_at ||
+          new Date().toISOString(),
+
+        /*
+         * Preserve all response information
+         * needed by ChatBubble and the
+         * Context Inspector.
+         */
+        sources:
+          Array.isArray(
+            metadata?.sources
+          )
+            ? metadata.sources
+            : [],
+
+        confidence:
+          metadata?.confidence,
+
+        speech_text:
+          metadata?.speech_text ||
+          null,
+
+        retrieval_results:
+          Array.isArray(
+            metadata?.retrieval_results
+          )
+            ? metadata.retrieval_results
+            : [],
+      };
+    };
+
+
+  /* =================================================================
+     Restore Context Inspector
+     ================================================================= */
+
+  const restoreInspectorFromMessages =
+    (backendMessages) => {
+
+      if (
+        !Array.isArray(
+          backendMessages
+        ) ||
+        backendMessages.length === 0
+      ) {
         setCurrentResults([]);
         setSelectedSource(null);
+        return;
+      }
+
+
+      /*
+       * Find latest assistant response.
+       */
+      const latestAssistant =
+        [...backendMessages]
+          .reverse()
+          .find(
+            (message) =>
+              message?.role ===
+              'assistant'
+          );
+
+
+      if (!latestAssistant) {
+        setCurrentResults([]);
+        setSelectedSource(null);
+        return;
+      }
+
+
+      const metadata =
+        normalizeMessageMetadata(
+          latestAssistant
+            ?.message_metadata
+        );
+
+
+      const results =
+        Array.isArray(
+          metadata?.retrieval_results
+        )
+          ? metadata.retrieval_results
+          : [];
+
+
+      const sources =
+        Array.isArray(
+          metadata?.sources
+        )
+          ? metadata.sources
+          : [];
+
+
+      setCurrentResults(
+        results
+      );
+
+
+      if (results.length === 0) {
+        setSelectedSource(null);
+        return;
+      }
+
+
+      /*
+       * Prefer a result referenced in sources.
+       */
+      const firstSource =
+        sources.length > 0
+          ? sources[0]
+          : null;
+
+
+      const sourceIdentifier =
+        getSourceIdentifier(
+          firstSource
+        );
+
+
+      let matchingResult =
+        null;
+
+
+      if (sourceIdentifier) {
+
+        matchingResult =
+          results.find(
+            (result) => {
+
+              const resultIdentifier =
+                result?.chunk_id ||
+                result?.id ||
+                result?.source ||
+                null;
+
+              return (
+                String(
+                  resultIdentifier
+                ) ===
+                String(
+                  sourceIdentifier
+                )
+              );
+            }
+          ) || null;
+      }
+
+
+      /*
+       * Fall back to the first retrieved
+       * result when there is no direct match.
+       */
+      setSelectedSource(
+        matchingResult ||
+          results[0] ||
+          null
+      );
+    };
+
+
+  /* =================================================================
+     Load one existing conversation
+     ================================================================= */
+
+  const loadConversation =
+    async (
+      selectedId
+    ) => {
+
+      if (!selectedId) {
+        return;
+      }
+
+
+      setLoadingConversation(
+        true
+      );
+
+      setConversationError(
+        null
+      );
+
+
+      try {
+
+        const conversation =
+          await api.getConversation(
+            selectedId
+          );
+
+
+        const backendMessages =
+          Array.isArray(
+            conversation?.messages
+          )
+            ? conversation.messages
+            : [];
+
+
+        setConversationId(
+          selectedId
+        );
+
+
+        /*
+         * Empty conversation:
+         * keep it empty.
+         */
+
+        if (backendMessages.length === 0) {
+          setMessages([
+            {
+              ...WELCOME_MESSAGE,
+              timestamp: new Date().toISOString(),
+            },
+          ]);
+
+          setCurrentResults([]);
+          setSelectedSource(null);
+
+          return;
+        }
+
+        const convertedMessages =
+          backendMessages.map(
+            convertBackendMessage
+          );
+
+
+        setMessages(
+          convertedMessages
+        );
+
+
+        /*
+         * Restore persisted sources.
+         */
+        restoreInspectorFromMessages(
+          backendMessages
+        );
+
+      } catch (error) {
+
+        console.error(
+          'Failed to load conversation:',
+          error
+        );
+
+
+        setConversationError(
+          error?.message ||
+            'Unable to load this conversation.'
+        );
+
+
+        setMessages([]);
+
+        setCurrentResults([]);
+
+        setSelectedSource(null);
+
+      } finally {
+
+        setLoadingConversation(
+          false
+        );
+      }
+    };
+
+
+  /* =================================================================
+     Load all conversations belonging to current user
+     ================================================================= */
+
+  const loadConversations =
+    async () => {
+
+      setLoadingConversation(
+        true
+      );
+
+      setConversationError(
+        null
+      );
+
+
+      try {
+
+        const data =
+          await api.getConversations();
+
+
+        const userConversations =
+          Array.isArray(
+            data?.conversations
+          )
+            ? data.conversations
+            : [];
+
+
+        setConversations(
+          userConversations
+        );
+
+
+        /*
+         * IMPORTANT:
+         *
+         * Do NOT create an empty database
+         * conversation when the ChatPage opens.
+         */
+
+        if (userConversations.length === 0) {
+          setConversationId(null);
+
+          setMessages([
+            {
+              ...WELCOME_MESSAGE,
+              timestamp: new Date().toISOString(),
+            },
+          ]);
+
+          setCurrentResults([]);
+          setSelectedSource(null);
+
+          return;
+        }
+
+        /*
+         * Backend sorts conversations by
+         * updated_at DESC.
+         */
+        const latestConversation =
+          userConversations[0];
+
+
+        const latestId =
+          latestConversation
+            ?.conversation_id;
+
+
+        if (!latestId) {
+          throw new Error(
+            'Conversation ID is missing from the backend response.'
+          );
+        }
+
+
+        await loadConversation(
+          latestId
+        );
+
+      } catch (error) {
+
+        console.error(
+          'Failed to load conversations:',
+          error
+        );
+
+
+        setConversationError(
+          error?.message ||
+            'Unable to load your conversation history.'
+        );
+
+
+        setConversationId(null);
+
+        setMessages([]);
+
+        setCurrentResults([]);
+
+        setSelectedSource(null);
+
+      } finally {
+
+        setLoadingConversation(
+          false
+        );
+      }
+    };
+
+
+  /* =================================================================
+     Initial load
+     ================================================================= */
+
+  useEffect(() => {
+
+    loadConversations();
+
+    return () => {
+      /*
+       * Stop voice recognition when
+       * leaving the page.
+       */
+      stopListening();
+
+      if (
+        'speechSynthesis' in
+        window
+      ) {
+        window.speechSynthesis.cancel();
+      }
+    };
+
+  }, []);
+
+
+  /* =================================================================
+     Select existing conversation
+     ================================================================= */
+
+  const handleSelectConversation =
+    async (
+      selectedId
+    ) => {
+
+      if (!selectedId) {
+        return;
+      }
+
+
+      if (
+        selectedId ===
+        conversationId
+      ) {
+        return;
+      }
+
+
+      /*
+       * Stop speech recognition before
+       * switching conversations.
+       */
+      if (isListening) {
+        stopListening();
+      }
+
+
+      await loadConversation(
+        selectedId
+      );
+    };
+
+
+  /* =================================================================
+     New Chat
+     ================================================================= */
+
+  const handleNewConversation =
+    () => {
+
+      /*
+       * IMPORTANT:
+       *
+       * Do not immediately call
+       * POST /conversations.
+       *
+       * This only creates a new local
+       * chat state. The backend conversation
+       * is created when the first real
+       * message is sent.
+       */
+      if (isListening) {
+        stopListening();
+      }
+
+
+      if (
+        'speechSynthesis' in
+        window
+      ) {
+        window.speechSynthesis.cancel();
+      }
+
+      setConversationId(null);
+
+      setMessages([
+        {
+          ...WELCOME_MESSAGE,
+          timestamp: new Date().toISOString(),
+        },
+      ]);
+
+      setCurrentResults([]);
+
+      setSelectedSource(null);
+
+      setConversationError(null);
+
+      setInputValue('');
+    };
+
+
+  /* =================================================================
+     Ensure backend conversation exists
+     ================================================================= */
+
+  const ensureConversation =
+    async () => {
+
+      /*
+       * Existing persistent conversation.
+       */
+      if (conversationId) {
+        return conversationId;
+      }
+
+
+      /*
+       * Create the conversation only when
+       * the user actually sends the first message.
+       */
+      const created =
+        await api.createConversation();
+
+
+      const newId =
+        created?.conversation_id;
+
+
+      if (!newId) {
+        throw new Error(
+          'The backend did not return a conversation ID.'
+        );
+      }
+
+
+      setConversationId(
+        newId
+      );
+
+
+      /*
+       * Add it to local dropdown.
+       */
+      setConversations(
+        (previous) => [
+          {
+            conversation_id:
+              newId,
+
+            created_at:
+              created?.created_at ||
+              new Date().toISOString(),
+
+            updated_at:
+              created?.updated_at ||
+              new Date().toISOString(),
+          },
+
+          ...previous,
+        ]
+      );
+
+
+      return newId;
+    };
+
+
+  /* =================================================================
+     Microphone
+     ================================================================= */
+
+  const handleMicClick =
+    () => {
+
+      if (!speechSupported) {
+
+        setSpeechError(
+          'Speech recognition is not supported in this browser. Please use a supported browser or type your question.'
+        );
 
         return;
       }
 
-      // -------------------------------------------------------------
-      // Handle normal RAG response.
-      // -------------------------------------------------------------
 
-      const answer =
-        response.response?.answer ||
-        'I could not generate an answer from the available knowledge base.';
+      if (isListening) {
 
-      const sources =
-        response.response?.sources || [];
+        stopListening();
 
-      const results =
-        response.retrieval?.results || [];
+      } else {
 
-      const botMsg = {
-        sender: 'bot',
-        text: answer,
-        speech_text: response.speech_text,
-        sources,
-        confidence:
-          response.response?.confidence,
-        timestamp: new Date().toISOString()
+        /*
+         * Save existing typed text so
+         * speech can be appended to it.
+         */
+        startTextRef.current =
+          inputValue;
+
+
+        setSpeechError(null);
+
+        startListening();
+      }
+    };
+
+
+  /* =================================================================
+     Send message
+     ================================================================= */
+
+  const handleSend =
+    async (
+      textToSend
+    ) => {
+
+      /*
+       * Stop voice recognition.
+       */
+      if (isListening) {
+        stopListening();
+      }
+
+
+      /*
+       * Stop TTS/Read Aloud.
+       *
+       * This preserves the existing behavior.
+       */
+      if (
+        'speechSynthesis' in
+        window
+      ) {
+        window.speechSynthesis.cancel();
+      }
+
+
+      const text =
+        (
+          textToSend ||
+          inputValue
+        ).trim();
+
+
+      if (!text || isTyping) {
+        return;
+      }
+
+
+      if (!textToSend) {
+        setInputValue('');
+      }
+
+
+      setConversationError(
+        null
+      );
+
+
+      /*
+       * Snapshot previous history
+       * before adding current message.
+       */
+      const history =
+        messages.map(
+          (message) => ({
+            role:
+              message.sender ===
+              'user'
+                ? 'user'
+                : 'assistant',
+
+            content:
+              message.text,
+          })
+        );
+
+
+      /*
+       * Show user message immediately.
+       */
+      const userMessage = {
+        sender: 'user',
+        text,
+        timestamp:
+          new Date().toISOString(),
       };
 
-      setMessages((prev) => [
-        ...prev,
-        botMsg
-      ]);
 
-      setCurrentResults(results);
+      setMessages(
+        (previous) => [
+          ...previous,
+          userMessage,
+        ]
+      );
+
+
+      setIsTyping(true);
+
+
+      try {
+
+        /*
+         * Create persistent backend conversation
+         * if this is a brand-new chat.
+         */
+        const activeConversationId =
+          await ensureConversation();
+
+
+        /*
+         * Send query with persistent UUID.
+         */
+        const response =
+          await api.sendChatMessage(
+            text,
+            history,
+            activeConversationId
+          );
+
+
+        /* ----------------------------------------------------------
+           Clarification response
+           ---------------------------------------------------------- */
+
+        if (
+          response?.clarification_required
+        ) {
+
+          const clarificationQuestion =
+            response?.clarification_question ||
+            'Could you please clarify your question?';
+
+
+          const clarificationMessage = {
+            sender: 'bot',
+
+            text:
+              clarificationQuestion,
+
+            timestamp:
+              new Date().toISOString(),
+
+            sources: [],
+
+            retrieval_results: [],
+          };
+
+
+          setMessages(
+            (previous) => [
+              ...previous,
+              clarificationMessage,
+            ]
+          );
+
+
+          setCurrentResults([]);
+
+          setSelectedSource(null);
+
+
+          return;
+        }
+
+
+        /* ----------------------------------------------------------
+           Normal RAG response
+           ---------------------------------------------------------- */
+
+        const answer =
+          response?.response?.answer ||
+          'I could not generate an answer from the available knowledge base.';
+
+
+        const sources =
+          Array.isArray(
+            response?.response?.sources
+          )
+            ? response.response.sources
+            : [];
+
+
+        const results =
+          Array.isArray(
+            response?.retrieval?.results
+          )
+            ? response.retrieval.results
+            : [];
+
+
+        /*
+         * This object contains everything needed
+         * immediately AND after rendering.
+         *
+         * The backend separately persists this
+         * information through message_metadata.
+         */
+        const botMessage = {
+          sender: 'bot',
+
+          text:
+            answer,
+
+          speech_text:
+            response?.speech_text ||
+            null,
+
+          sources,
+
+          confidence:
+            response?.response?.confidence,
+
+          retrieval_results:
+            results,
+
+          timestamp:
+            new Date().toISOString(),
+        };
+
+
+        setMessages(
+          (previous) => [
+            ...previous,
+            botMessage,
+          ]
+        );
+
+
+        /* ----------------------------------------------------------
+           Context Inspector
+           ---------------------------------------------------------- */
+
+        setCurrentResults(
+          results
+        );
+
+
+        if (
+          results.length > 0
+        ) {
+
+          const firstSource =
+            sources.length > 0
+              ? sources[0]
+              : null;
+
+
+          const sourceIdentifier =
+            getSourceIdentifier(
+              firstSource
+            );
+
+
+          let selected =
+            null;
+
+
+          if (sourceIdentifier) {
+
+            selected =
+              results.find(
+                (result) => {
+
+                  const resultIdentifier =
+                    result?.chunk_id ||
+                    result?.id ||
+                    result?.source ||
+                    null;
+
+                  return (
+                    String(
+                      resultIdentifier
+                    ) ===
+                    String(
+                      sourceIdentifier
+                    )
+                  );
+                }
+              ) || null;
+          }
+
+
+          setSelectedSource(
+            selected ||
+              results[0] ||
+              null
+          );
+
+        } else {
+
+          setSelectedSource(
+            null
+          );
+        }
+
+
+        /* ----------------------------------------------------------
+           Refresh conversation list
+           ---------------------------------------------------------- */
+
+        try {
+
+          const conversationData =
+            await api.getConversations();
+
+
+          if (
+            Array.isArray(
+              conversationData?.conversations
+            )
+          ) {
+
+            setConversations(
+              conversationData.conversations
+            );
+          }
+
+        } catch (listError) {
+
+          console.warn(
+            'Could not refresh conversation list:',
+            listError
+          );
+        }
+
+      } catch (error) {
+
+        console.error(
+          'Query failed:',
+          error
+        );
+
+
+        const errorMessage = {
+          sender: 'bot',
+
+          text:
+            error?.message ||
+            'I’m sorry, but I couldn’t process your request. Please try again.',
+
+          timestamp:
+            new Date().toISOString(),
+
+          sources: [],
+
+          retrieval_results: [],
+        };
+
+
+        setMessages(
+          (previous) => [
+            ...previous,
+            errorMessage,
+          ]
+        );
+
+
+        setCurrentResults([]);
+
+        setSelectedSource(null);
+
+      } finally {
+
+        setIsTyping(false);
+      }
+    };
+
+
+  /* =================================================================
+     Keyboard
+     ================================================================= */
+
+  const handleKeyDown =
+    (event) => {
+
+      if (
+        event.key === 'Enter' &&
+        !event.shiftKey
+      ) {
+
+        event.preventDefault();
+
+        handleSend();
+      }
+    };
+
+
+  /* =================================================================
+     Source selection
+     ================================================================= */
+
+  const handleSelectSource =
+    (source) => {
+
+      if (!source) {
+        return;
+      }
+
+
+      const sourceIdentifier =
+        getSourceIdentifier(
+          source
+        );
+
+
+      /*
+       * Match by chunk ID first.
+       */
+      if (sourceIdentifier) {
+
+        const matchingResult =
+          currentResults.find(
+            (result) => {
+
+              const resultIdentifier =
+                result?.chunk_id ||
+                result?.id ||
+                result?.source ||
+                null;
+
+              return (
+                String(
+                  resultIdentifier
+                ) ===
+                String(
+                  sourceIdentifier
+                )
+              );
+            }
+          );
+
+
+        if (matchingResult) {
+
+          setSelectedSource(
+            matchingResult
+          );
+
+          return;
+        }
+      }
+
+
+      /*
+       * Filename fallback.
+       */
+      const sourceFilename =
+        source?.metadata?.filename ||
+        source?.filename ||
+        source?.document ||
+        null;
+
+
+      if (sourceFilename) {
+
+        const filenameMatch =
+          currentResults.find(
+            (result) =>
+              result?.metadata?.filename ===
+              sourceFilename
+          );
+
+
+        if (filenameMatch) {
+
+          setSelectedSource(
+            filenameMatch
+          );
+
+          return;
+        }
+      }
+
+
+      /*
+       * Final fallback.
+       */
       setSelectedSource(
-        results[0] || null
+        source
       );
+    };
 
-    } catch (error) {
-      console.error(
-        'Query failed:',
-        error
-      );
 
-      setMessages((prev) => [
-        ...prev,
-        {
-          sender: 'bot',
-          text: "I’m sorry, but I couldn’t process your request. Please verify that the backend is running and try again.",
-          timestamp: new Date().toISOString()
-        }
-      ]);
-    } finally {
-      setIsTyping(false);
-    }
-  };
-
-  const handleKeyDown = (e) => {
-    if (
-      e.key === 'Enter' &&
-      !e.shiftKey
-    ) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
-
-  const handleClearConversation = async () => {
-    if (isListening) {
-      stopListening();
-    }
-
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-    }
-
-    try {
-      await createNewConversation();
-
-      setMessages([
-        {
-          sender: 'bot',
-          text: "Hello! I am your RAG Chatbot Assistant. Ask me anything about the files in your knowledge base.",
-          timestamp: new Date().toISOString()
-        }
-      ]);
-
-      setInputValue('');
-      setCurrentResults([]);
-      setSelectedSource(null);
-
-    } catch (error) {
-      console.error(
-        'Failed to reset conversation:',
-        error
-      );
-    }
-  };
+  /* =================================================================
+     Render
+     ================================================================= */
 
   return (
     <div
       style={{
         display: 'flex',
         width: '100%',
-        height: 'calc(100vh - 0px)',
-        overflow: 'hidden'
+        height: '100%',
+        overflow: 'hidden',
       }}
     >
 
-      {/* Left Pane: Chat Feed */}
+      {/* ============================================================
+          LEFT CHAT PANEL
+          ============================================================ */}
+
       <div
         style={{
           flex: 1,
@@ -304,153 +1335,459 @@ export default function ChatPage() {
           height: '100%',
           borderRight:
             '1px solid var(--border-color)',
-          position: 'relative'
+          position: 'relative',
+          minWidth: 0,
         }}
       >
 
-        {/* Chat Header */}
+        {/* ----------------------------------------------------------
+            Header
+            ---------------------------------------------------------- */}
+
         <div
           style={{
-            padding: '20px 32px',
+            padding:
+              '16px 32px',
             borderBottom:
               '1px solid var(--border-color)',
             display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center'
+            justifyContent:
+              'space-between',
+            alignItems:
+              'center',
+            gap: '15px',
           }}
         >
-          <div style={{ textAlign: 'left' }}>
+
+          <div
+            style={{
+              textAlign: 'left',
+              minWidth: 0,
+            }}
+          >
+
             <h2
               style={{
-                fontSize: '1.25rem',
-                fontWeight: '600'
+                fontSize:
+                  '1.25rem',
+                fontWeight: 600,
+                margin: 0,
               }}
             >
               AI Assistant
             </h2>
 
+
             <p
               style={{
-                fontSize: '0.8rem',
-                color: 'var(--text-muted)'
+                fontSize:
+                  '0.8rem',
+                color:
+                  'var(--text-muted)',
+                margin:
+                  '4px 0 0',
               }}
             >
               Retrieval-Augmented Chat Engine
             </p>
+
           </div>
 
-          <div>
-            <button
-              onClick={
-                handleClearConversation
-              }
-              disabled={!conversationReady}
-              className="btn btn-secondary"
-              style={{
-                fontSize: '0.8rem',
-                padding: '6px 12px'
-              }}
-            >
-              Clear Conversation
-            </button>
-          </div>
+
+          <button
+            type="button"
+            onClick={
+              handleNewConversation
+            }
+            disabled={
+              loadingConversation ||
+              isTyping
+            }
+            className="btn btn-secondary"
+            style={{
+              fontSize:
+                '0.8rem',
+              padding:
+                '6px 12px',
+              flexShrink: 0,
+            }}
+          >
+            New Chat
+          </button>
+
         </div>
 
-        {/* Message Thread */}
-        <div
-          style={{
-            flex: 1,
-            overflowY: 'auto',
-            padding: '32px',
-            display: 'flex',
-            flexDirection: 'column'
-          }}
-        >
-          {messages.map((msg, idx) => (
-            <ChatBubble
-              key={idx}
-              message={msg}
-              onSelectSource={(source) => {
-                const matchingResult =
-                  currentResults.find(
-                    (result) =>
-                      result.chunk_id &&
-                      source.chunk_id &&
-                      result.chunk_id ===
-                        source.chunk_id
-                  ) ||
-                  currentResults.find(
-                    (result) =>
-                      !source.chunk_id &&
-                      result.metadata
-                        ?.filename ===
-                        source.source
-                  );
 
-                setSelectedSource(
-                  matchingResult || source
-                );
-              }}
-            />
-          ))}
+        {/* ----------------------------------------------------------
+            Conversation selector
+            ---------------------------------------------------------- */}
 
-          {isTyping && (
-            <div
+        {conversations.length > 0 && (
+          <div
+            style={{
+              padding:
+                '10px 32px',
+              borderBottom:
+                '1px solid var(--border-color)',
+              background:
+                'var(--bg-surface-opaque)',
+            }}
+          >
+
+            <select
+              value={
+                conversationId ||
+                ''
+              }
+              onChange={
+                (event) =>
+                  handleSelectConversation(
+                    event.target.value
+                  )
+              }
+              disabled={
+                loadingConversation ||
+                isTyping
+              }
               style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'flex-start',
-                marginBottom: '20px'
+                width:
+                  '100%',
+                maxWidth:
+                  '580px',
+                height:
+                  '38px',
+                padding:
+                  '0 12px',
+                borderRadius:
+                  '9px',
+                border:
+                  '1px solid var(--border-color)',
+                background:
+                  'var(--bg-input)',
+                color:
+                  'var(--text-secondary)',
+                outline:
+                  'none',
+                cursor:
+                  'pointer',
               }}
             >
+
+              {conversations.map(
+                (
+                  conversation,
+                  index
+                ) => (
+
+                  <option
+                    key={
+                      conversation.conversation_id
+                    }
+                    value={
+                      conversation.conversation_id
+                    }
+                  >
+                    {`Conversation ${
+                      conversations.length -
+                      index
+                    }`}
+                  </option>
+
+                )
+              )}
+
+            </select>
+
+          </div>
+        )}
+
+
+        {/* ----------------------------------------------------------
+            Loading
+            ---------------------------------------------------------- */}
+
+        {loadingConversation && (
+          <div
+            style={{
+              padding:
+                '8px 32px',
+              fontSize:
+                '0.72rem',
+              color:
+                'var(--text-muted)',
+            }}
+          >
+            Loading conversation history...
+          </div>
+        )}
+
+
+        {/* ----------------------------------------------------------
+            Conversation error
+            ---------------------------------------------------------- */}
+
+        {conversationError && (
+          <div
+            style={{
+              margin:
+                '10px 32px 0',
+              padding:
+                '9px 12px',
+              borderRadius:
+                '8px',
+              border:
+                '1px solid rgba(255, 80, 80, 0.18)',
+              background:
+                'rgba(255, 80, 80, 0.06)',
+              color:
+                '#ff9999',
+              fontSize:
+                '0.75rem',
+              textAlign:
+                'left',
+            }}
+          >
+            {conversationError}
+          </div>
+        )}
+
+
+        {/* ----------------------------------------------------------
+            Empty new-chat state
+            ---------------------------------------------------------- */}
+
+        {!loadingConversation &&
+          messages.length === 0 && (
+            <div
+              style={{
+                flex: 1,
+                display: 'flex',
+                alignItems:
+                  'center',
+                justifyContent:
+                  'center',
+                padding:
+                  '32px',
+                textAlign:
+                  'center',
+                color:
+                  'var(--text-muted)',
+              }}
+            >
+
               <div
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  marginBottom: '6px',
-                  fontSize: '0.8rem',
-                  color: 'var(--text-muted)'
+                  maxWidth:
+                    '520px',
                 }}
               >
-                <span
+
+                <div
                   style={{
-                    fontWeight: 600
+                    width:
+                      '58px',
+                    height:
+                      '58px',
+                    margin:
+                      '0 auto 16px',
+                    borderRadius:
+                      '16px',
+                    display:
+                      'flex',
+                    alignItems:
+                      'center',
+                    justifyContent:
+                      'center',
+                    background:
+                      'hsla(185, 100%, 48%, 0.08)',
+                    border:
+                      '1px solid hsla(185, 100%, 48%, 0.14)',
                   }}
                 >
-                  AI Assistant
-                </span>
 
-                <span>•</span>
+                  <svg
+                    width="28"
+                    height="28"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                  </svg>
 
-                <span>
-                  Thinking...
-                </span>
+                </div>
+
+
+                <h3
+                  style={{
+                    color:
+                      'var(--text-secondary)',
+                    margin:
+                      '0 0 8px',
+                    fontSize:
+                      '1.05rem',
+                  }}
+                >
+                  Start a new conversation
+                </h3>
+
+
+                <p
+                  style={{
+                    margin:
+                      0,
+                    fontSize:
+                      '0.82rem',
+                    lineHeight:
+                      '1.5',
+                  }}
+                >
+                  Ask a question about your
+                  indexed documents. Your
+                  conversation will be saved
+                  automatically.
+                </p>
+
               </div>
 
-              <div
-                className="glass-card"
-                style={{
-                  padding: '12px 18px',
-                  borderRadius:
-                    '16px 16px 16px 4px',
-                  background:
-                    'var(--bg-surface)',
-                  border:
-                    '1px solid var(--border-color)'
-                }}
-              >
-                <span className="typing-dot"></span>
-                <span className="typing-dot"></span>
-                <span className="typing-dot"></span>
-              </div>
             </div>
           )}
 
-          <div ref={chatEndRef} />
-        </div>
 
-        {/* Input Bar */}
+        {/* ----------------------------------------------------------
+            Messages
+            ---------------------------------------------------------- */}
+
+        {messages.length > 0 && (
+          <div
+            style={{
+              flex: 1,
+              overflowY:
+                'auto',
+              padding:
+                '32px',
+              display:
+                'flex',
+              flexDirection:
+                'column',
+            }}
+          >
+
+            {messages.map(
+              (
+                message,
+                index
+              ) => (
+
+                <ChatBubble
+                  key={
+                    message.id ||
+                    `${message.timestamp}-${index}`
+                  }
+                  message={
+                    message
+                  }
+                  onSelectSource={
+                    handleSelectSource
+                  }
+                />
+
+              )
+            )}
+
+
+            {/* Typing indicator */}
+
+            {isTyping && (
+              <div
+                style={{
+                  display:
+                    'flex',
+                  flexDirection:
+                    'column',
+                  alignItems:
+                    'flex-start',
+                  marginBottom:
+                    '20px',
+                }}
+              >
+
+                <div
+                  style={{
+                    display:
+                      'flex',
+                    alignItems:
+                      'center',
+                    gap:
+                      '6px',
+                    marginBottom:
+                      '6px',
+                    fontSize:
+                      '0.8rem',
+                    color:
+                      'var(--text-muted)',
+                  }}
+                >
+
+                  <span
+                    style={{
+                      fontWeight:
+                        600,
+                    }}
+                  >
+                    AI Assistant
+                  </span>
+
+                  <span>
+                    •
+                  </span>
+
+                  <span>
+                    Thinking...
+                  </span>
+
+                </div>
+
+
+                <div
+                  className="glass-card"
+                  style={{
+                    padding:
+                      '12px 18px',
+                    borderRadius:
+                      '16px 16px 16px 4px',
+                    background:
+                      'var(--bg-surface)',
+                    border:
+                      '1px solid var(--border-color)',
+                  }}
+                >
+
+                  <span className="typing-dot" />
+                  <span className="typing-dot" />
+                  <span className="typing-dot" />
+
+                </div>
+
+              </div>
+            )}
+
+
+            <div
+              ref={chatEndRef}
+            />
+
+          </div>
+        )}
+
+
+        {/* ----------------------------------------------------------
+            Input area
+            ---------------------------------------------------------- */}
+
         <div
           style={{
             padding:
@@ -458,38 +1795,51 @@ export default function ChatPage() {
             borderTop:
               '1px solid var(--border-color)',
             background:
-              'var(--bg-surface-opaque)'
+              'var(--bg-surface-opaque)',
           }}
         >
 
-          {/* Speech Error Banner */}
+          {/* Speech error */}
+
           {speechError && (
             <div
               style={{
-                padding: '10px 16px',
+                padding:
+                  '10px 16px',
                 background:
                   'hsla(0, 85%, 60%, 0.1)',
                 border:
                   '1px solid var(--accent-rose)',
-                borderRadius: '8px',
+                borderRadius:
+                  '8px',
                 color:
                   'var(--accent-rose)',
-                fontSize: '0.8rem',
-                marginBottom: '12px',
-                display: 'flex',
+                fontSize:
+                  '0.8rem',
+                marginBottom:
+                  '12px',
+                display:
+                  'flex',
                 justifyContent:
                   'space-between',
-                alignItems: 'center',
-                textAlign: 'left'
+                alignItems:
+                  'center',
+                textAlign:
+                  'left',
               }}
             >
+
               <span
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px'
+                  display:
+                    'flex',
+                  alignItems:
+                    'center',
+                  gap:
+                    '8px',
                 }}
               >
+
                 <svg
                   width="14"
                   height="14"
@@ -505,12 +1855,14 @@ export default function ChatPage() {
                     cy="12"
                     r="10"
                   />
+
                   <line
                     x1="12"
                     y1="8"
                     x2="12"
                     y2="12"
                   />
+
                   <line
                     x1="12"
                     y1="16"
@@ -520,66 +1872,111 @@ export default function ChatPage() {
                 </svg>
 
                 {speechError}
+
               </span>
 
+
               <button
+                type="button"
                 onClick={() =>
                   setSpeechError(null)
                 }
                 style={{
                   background:
                     'transparent',
-                  border: 'none',
+                  border:
+                    'none',
                   color:
                     'var(--accent-rose)',
-                  cursor: 'pointer',
-                  fontSize: '1.2rem',
-                  fontWeight: 'bold',
-                  lineHeight: '1',
-                  padding: '0 4px',
-                  display: 'flex',
+                  cursor:
+                    'pointer',
+                  fontSize:
+                    '1.2rem',
+                  fontWeight:
+                    'bold',
+                  lineHeight:
+                    '1',
+                  padding:
+                    '0 4px',
+                  display:
+                    'flex',
                   alignItems:
-                    'center'
+                    'center',
                 }}
                 aria-label="Dismiss error"
               >
                 ×
               </button>
+
             </div>
           )}
 
+
           <div
             style={{
-              display: 'flex',
-              gap: '12px',
-              position: 'relative',
-              alignItems: 'center'
+              display:
+                'flex',
+              gap:
+                '12px',
+              position:
+                'relative',
+              alignItems:
+                'center',
             }}
           >
+
+            {/* ======================================================
+                Textarea
+                ====================================================== */}
+
             <textarea
               className="input-text"
-              value={inputValue}
-              onChange={(e) =>
-                setInputValue(
-                  e.target.value
-                )
+              value={
+                inputValue
               }
-              onKeyDown={handleKeyDown}
+              onChange={
+                (event) =>
+                  setInputValue(
+                    event.target.value
+                  )
+              }
+              onKeyDown={
+                handleKeyDown
+              }
               placeholder="Ask a question about your uploaded documents..."
               rows="1"
+              disabled={
+                loadingConversation ||
+                isTyping
+              }
               style={{
-                resize: 'none',
-                height: '50px',
-                paddingTop: '14px',
-                paddingRight: '92px',
-                lineHeight: '1.4'
+                resize:
+                  'none',
+                height:
+                  '50px',
+                paddingTop:
+                  '14px',
+                paddingRight:
+                  '92px',
+                lineHeight:
+                  '1.4',
               }}
             />
 
-            {/* Microphone Button */}
+
+            {/* ======================================================
+                Microphone
+                ====================================================== */}
+
             <button
-              onClick={handleMicClick}
-              disabled={!conversationReady}
+              type="button"
+              onClick={
+                handleMicClick
+              }
+              disabled={
+                loadingConversation ||
+                isTyping
+              }
               className={`btn ${
                 isListening
                   ? 'btn-secondary'
@@ -596,14 +1993,22 @@ export default function ChatPage() {
                   : 'Start voice input'
               }
               style={{
-                position: 'absolute',
-                right: '48px',
-                height: '38px',
-                width: '38px',
-                borderRadius: '8px',
-                padding: 0,
-                display: 'flex',
-                alignItems: 'center',
+                position:
+                  'absolute',
+                right:
+                  '48px',
+                height:
+                  '38px',
+                width:
+                  '38px',
+                borderRadius:
+                  '8px',
+                padding:
+                  0,
+                display:
+                  'flex',
+                alignItems:
+                  'center',
                 justifyContent:
                   'center',
                 background:
@@ -616,20 +2021,29 @@ export default function ChatPage() {
                     : 'var(--text-primary)',
                 border:
                   '1px solid ' +
-                  (isListening
-                    ? 'var(--accent-rose)'
-                    : 'var(--border-color)'),
+                  (
+                    isListening
+                      ? 'var(--accent-rose)'
+                      : 'var(--border-color)'
+                  ),
                 animation:
                   isListening
                     ? 'pulse-glow 1.5s infinite'
                     : 'none',
                 cursor:
-                  conversationReady
-                    ? 'pointer'
-                    : 'not-allowed'
+                  (
+                    loadingConversation ||
+                    isTyping
+                  )
+                    ? 'not-allowed'
+                    : 'pointer',
               }}
             >
+
               {isListening ? (
+
+                /* Stop */
+
                 <svg
                   width="18"
                   height="18"
@@ -648,7 +2062,11 @@ export default function ChatPage() {
                     rx="2"
                   />
                 </svg>
+
               ) : (
+
+                /* Microphone */
+
                 <svg
                   width="18"
                   height="18"
@@ -660,13 +2078,16 @@ export default function ChatPage() {
                   strokeLinejoin="round"
                 >
                   <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+
                   <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+
                   <line
                     x1="12"
                     y1="19"
                     x2="12"
                     y2="23"
                   />
+
                   <line
                     x1="8"
                     y1="23"
@@ -674,33 +2095,49 @@ export default function ChatPage() {
                     y2="23"
                   />
                 </svg>
+
               )}
+
             </button>
 
-            {/* Send Button */}
+
+            {/* ======================================================
+                Send
+                ====================================================== */}
+
             <button
+              type="button"
               onClick={() =>
                 handleSend()
               }
               disabled={
                 !inputValue.trim() ||
                 isTyping ||
-                !conversationReady
+                loadingConversation
               }
               className="btn btn-primary"
               style={{
-                position: 'absolute',
-                right: '6px',
-                height: '38px',
-                width: '38px',
-                borderRadius: '8px',
-                padding: 0,
-                display: 'flex',
-                alignItems: 'center',
+                position:
+                  'absolute',
+                right:
+                  '6px',
+                height:
+                  '38px',
+                width:
+                  '38px',
+                borderRadius:
+                  '8px',
+                padding:
+                  0,
+                display:
+                  'flex',
+                alignItems:
+                  'center',
                 justifyContent:
-                  'center'
+                  'center',
               }}
             >
+
               <svg
                 width="18"
                 height="18"
@@ -711,132 +2148,205 @@ export default function ChatPage() {
                 strokeLinecap="round"
                 strokeLinejoin="round"
               >
+
                 <line
                   x1="22"
                   y1="2"
                   x2="11"
                   y2="13"
                 />
-                <polygon points="22 2 15 22 11 13 2 9 22 2" />
+
+                <polygon
+                  points="22 2 15 22 11 13 2 9 22 2"
+                />
+
               </svg>
+
             </button>
+
           </div>
 
+
+          {/* Listening status */}
+
           {isListening ? (
+
             <div
               style={{
-                marginTop: '12px',
-                textAlign: 'center',
-                fontSize: '0.75rem',
+                marginTop:
+                  '12px',
+                textAlign:
+                  'center',
+                fontSize:
+                  '0.75rem',
                 color:
                   'var(--accent-rose)',
-                display: 'flex',
+                display:
+                  'flex',
                 alignItems:
                   'center',
                 justifyContent:
                   'center',
-                gap: '6px'
+                gap:
+                  '6px',
               }}
             >
+
               <span
                 style={{
-                  display: 'inline-block',
-                  width: '8px',
-                  height: '8px',
-                  borderRadius: '50%',
+                  display:
+                    'inline-block',
+                  width:
+                    '8px',
+                  height:
+                    '8px',
+                  borderRadius:
+                    '50%',
                   background:
                     'var(--accent-rose)',
                   animation:
-                    'pulse-glow 1.5s infinite'
+                    'pulse-glow 1.5s infinite',
                 }}
               />
 
               Listening... Speak now.
+
             </div>
+
           ) : (
+
             <div
               style={{
-                marginTop: '12px',
-                textAlign: 'center',
-                fontSize: '0.75rem',
+                marginTop:
+                  '12px',
+                textAlign:
+                  'center',
+                fontSize:
+                  '0.75rem',
                 color:
-                  'var(--text-muted)'
+                  'var(--text-muted)',
               }}
             >
               AI Assistant will search and answer based on your indexed knowledge base documents.
             </div>
+
           )}
+
         </div>
+
       </div>
 
-      {/* Right Pane: Source Chunk Inspector */}
+
+      {/* ============================================================
+          CONTEXT INSPECTOR
+          ============================================================ */}
+
       <div
         style={{
-          width: '360px',
-          height: '100%',
-          display: 'flex',
-          flexDirection: 'column',
+          width:
+            '360px',
+          height:
+            '100%',
+          display:
+            'flex',
+          flexDirection:
+            'column',
           background:
-            'var(--bg-surface-opaque)'
+            'var(--bg-surface-opaque)',
+          flexShrink:
+            0,
         }}
       >
 
-        {/* Inspector Header */}
+        {/* ----------------------------------------------------------
+            Inspector header
+            ---------------------------------------------------------- */}
+
         <div
           style={{
             padding:
               '20px 24px',
             borderBottom:
               '1px solid var(--border-color)',
-            textAlign: 'left'
+            textAlign:
+              'left',
           }}
         >
+
           <h3
             style={{
-              fontSize: '1.1rem',
-              fontWeight: '600'
+              fontSize:
+                '1.1rem',
+              fontWeight:
+                600,
+              margin:
+                0,
             }}
           >
             Context Inspector
           </h3>
 
+
           <p
             style={{
-              fontSize: '0.75rem',
+              fontSize:
+                '0.75rem',
               color:
-                'var(--text-muted)'
+                'var(--text-muted)',
+              margin:
+                '5px 0 0',
             }}
           >
             Semantic matches retrieved from Database
           </p>
+
         </div>
 
-        {/* Inspector Content */}
+
+        {/* ----------------------------------------------------------
+            Inspector content
+            ---------------------------------------------------------- */}
+
         <div
           style={{
-            flex: 1,
-            overflowY: 'auto',
-            padding: '20px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '16px'
+            flex:
+              1,
+            overflowY:
+              'auto',
+            padding:
+              '20px',
+            display:
+              'flex',
+            flexDirection:
+              'column',
+            gap:
+              '16px',
           }}
         >
+
           {!selectedSource ? (
+
             <div
               style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
+                display:
+                  'flex',
+                flexDirection:
+                  'column',
+                alignItems:
+                  'center',
                 justifyContent:
                   'center',
-                height: '100%',
+                height:
+                  '100%',
                 color:
                   'var(--text-muted)',
-                textAlign: 'center',
-                padding: '20px'
+                textAlign:
+                  'center',
+                padding:
+                  '20px',
               }}
             >
+
               <svg
                 width="32"
                 height="32"
@@ -847,66 +2357,93 @@ export default function ChatPage() {
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 style={{
-                  marginBottom: '12px'
+                  marginBottom:
+                    '12px',
                 }}
               >
+
                 <circle
                   cx="11"
                   cy="11"
                   r="8"
                 />
+
                 <line
                   x1="21"
                   y1="21"
                   x2="16.65"
                   y2="16.65"
                 />
+
               </svg>
+
 
               <h4
                 style={{
-                  fontSize: '0.9rem',
-                  marginBottom: '4px'
+                  fontSize:
+                    '0.9rem',
+                  marginBottom:
+                    '4px',
                 }}
               >
                 No Source Selected
               </h4>
 
+
               <p
                 style={{
-                  fontSize: '0.75rem'
+                  fontSize:
+                    '0.75rem',
+                  margin:
+                    0,
                 }}
               >
                 Ask a question first, then click on a source pill to inspect its raw text chunk.
               </p>
+
             </div>
+
           ) : (
+
             <div
               className="animate-fade-in"
               style={{
-                textAlign: 'left'
+                textAlign:
+                  'left',
               }}
             >
 
-              {/* Document Details */}
+              {/* ----------------------------------------------------
+                  Document details
+                  ---------------------------------------------------- */}
+
               <div
                 className="glass-card"
                 style={{
-                  padding: '16px',
+                  padding:
+                    '16px',
                   border:
                     '1px solid var(--border-color)',
-                  borderRadius: '10px',
-                  marginBottom: '16px'
+                  borderRadius:
+                    '10px',
+                  marginBottom:
+                    '16px',
                 }}
               >
+
                 <div
                   style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '10px',
-                    marginBottom: '8px'
+                    display:
+                      'flex',
+                    alignItems:
+                      'center',
+                    gap:
+                      '10px',
+                    marginBottom:
+                      '8px',
                   }}
                 >
+
                   <svg
                     width="16"
                     height="16"
@@ -918,153 +2455,221 @@ export default function ChatPage() {
                     strokeLinejoin="round"
                     style={{
                       color:
-                        'var(--accent-purple)'
+                        'var(--accent-purple)',
                     }}
                   >
+
                     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                    <polyline points="14 2 14 8 20 8" />
+
+                    <polyline
+                      points="14 2 14 8 20 8"
+                    />
+
                   </svg>
+
 
                   <span
                     style={{
                       fontSize:
                         '0.85rem',
-                      fontWeight: 600,
+                      fontWeight:
+                        600,
                       wordBreak:
-                        'break-all'
+                        'break-all',
                     }}
                   >
-                    {selectedSource.metadata?.filename ||
-                      selectedSource.source ||
-                      'Retrieved document'}
+                    {
+                      selectedSource?.metadata?.filename ||
+                      selectedSource?.filename ||
+                      selectedSource?.document ||
+                      selectedSource?.source ||
+                      'Retrieved document'
+                    }
                   </span>
+
                 </div>
+
 
                 <div
                   style={{
-                    display: 'flex',
+                    display:
+                      'flex',
                     justifyContent:
                       'space-between',
-                    fontSize: '0.75rem',
+                    gap:
+                      '10px',
+                    fontSize:
+                      '0.75rem',
                     color:
-                      'var(--text-muted)'
+                      'var(--text-muted)',
                   }}
                 >
+
                   <span>
                     Chunk ID:{' '}
+
                     <strong>
-                      {selectedSource.chunk_id ||
-                        'Unavailable'}
+                      {
+                        selectedSource?.chunk_id ||
+                        selectedSource?.id ||
+                        'Unavailable'
+                      }
                     </strong>
                   </span>
 
+
                   <span>
                     Relevance:{' '}
+
                     <strong
                       style={{
                         color:
-                          'var(--accent-emerald)'
+                          'var(--accent-emerald)',
                       }}
                     >
                       {Math.round(
                         Number(
-                          selectedSource.relevance_score ||
+                          selectedSource?.relevance_score ||
                             0
                         ) * 100
                       )}
                       %
                     </strong>
                   </span>
+
                 </div>
+
               </div>
 
-              {/* Chunk Content */}
+
+              {/* ----------------------------------------------------
+                  Retrieved chunk
+                  ---------------------------------------------------- */}
+
               <h4
                 style={{
-                  fontSize: '0.85rem',
-                  fontWeight: 600,
+                  fontSize:
+                    '0.85rem',
+                  fontWeight:
+                    600,
                   color:
                     'var(--text-secondary)',
-                  marginBottom: '8px',
+                  marginBottom:
+                    '8px',
                   textTransform:
                     'uppercase',
                   letterSpacing:
-                    '0.05em'
+                    '0.05em',
                 }}
               >
                 Retrieved Context Chunk
               </h4>
 
+
               <div
                 className="glass-card"
                 style={{
-                  padding: '16px',
-                  fontSize: '0.85rem',
-                  lineHeight: '1.5',
+                  padding:
+                    '16px',
+                  fontSize:
+                    '0.85rem',
+                  lineHeight:
+                    '1.5',
                   fontFamily:
                     'var(--font-mono)',
                   background:
                     'var(--bg-input)',
                   border:
                     '1px solid var(--border-color)',
-                  borderRadius: '8px',
+                  borderRadius:
+                    '8px',
                   color:
                     'var(--text-secondary)',
-                  maxHeight: '260px',
-                  overflowY: 'auto',
+                  maxHeight:
+                    '260px',
+                  overflowY:
+                    'auto',
                   whiteSpace:
-                    'pre-wrap'
+                    'pre-wrap',
                 }}
               >
-                {selectedSource.content ||
-                  'No retrieved content is available for this source.'}
+                {
+                  selectedSource?.content ||
+                  'No retrieved content is available for this source.'
+                }
               </div>
+
+
+              {/* ----------------------------------------------------
+                  Metrics
+                  ---------------------------------------------------- */}
 
               <div
                 style={{
-                  display: 'flex',
-                  gap: '12px',
-                  fontSize: '0.75rem',
+                  display:
+                    'flex',
+                  gap:
+                    '12px',
+                  fontSize:
+                    '0.75rem',
                   color:
-                    'var(--text-muted)'
+                    'var(--text-muted)',
+                  marginTop:
+                    '10px',
+                  flexWrap:
+                    'wrap',
                 }}
               >
+
                 <span>
                   Semantic:{' '}
+
                   <strong>
                     {Number(
-                      selectedSource.semantic_score ||
+                      selectedSource?.semantic_score ||
                         0
                     ).toFixed(3)}
                   </strong>
                 </span>
 
+
                 <span>
                   Metadata:{' '}
+
                   <strong>
-                    {Object.keys(
-                      selectedSource.metadata ||
-                        {}
-                    ).length}{' '}
+                    {
+                      Object.keys(
+                        selectedSource?.metadata ||
+                          {}
+                      ).length
+                    }{' '}
                     fields
                   </strong>
                 </span>
+
               </div>
 
-              {/* All Retrieved Results */}
+
+              {/* ----------------------------------------------------
+                  All retrieved matches
+                  ---------------------------------------------------- */}
+
               {currentResults.length >
                 0 && (
+
                 <div
                   style={{
                     marginTop:
-                      '24px'
+                      '24px',
                   }}
                 >
+
                   <h4
                     style={{
                       fontSize:
                         '0.85rem',
-                      fontWeight: 600,
+                      fontWeight:
+                        600,
                       color:
                         'var(--text-secondary)',
                       marginBottom:
@@ -1072,13 +2677,16 @@ export default function ChatPage() {
                       textTransform:
                         'uppercase',
                       letterSpacing:
-                        '0.05em'
+                        '0.05em',
                     }}
                   >
                     All Matches (
-                    {currentResults.length}
+                    {
+                      currentResults.length
+                    }
                     )
                   </h4>
+
 
                   <div
                     style={{
@@ -1086,102 +2694,153 @@ export default function ChatPage() {
                         'flex',
                       flexDirection:
                         'column',
-                      gap: '8px'
+                      gap:
+                        '8px',
                     }}
                   >
+
                     {currentResults.map(
-                      (src, idx) => (
-                        <div
-                          key={
-                            src.chunk_id ||
-                            idx
-                          }
-                          onClick={() =>
-                            setSelectedSource(
-                              src
-                            )
-                          }
-                          style={{
-                            padding:
-                              '10px 12px',
-                            borderRadius:
-                              '8px',
-                            border:
-                              '1px solid ' +
-                              (selectedSource.chunk_id ===
-                              src.chunk_id
-                                ? 'var(--accent-purple)'
-                                : 'var(--border-color)'),
-                            background:
-                              selectedSource.chunk_id ===
-                              src.chunk_id
-                                ? 'hsla(263, 85%, 65%, 0.08)'
-                                : 'transparent',
-                            cursor:
-                              'pointer',
-                            display:
-                              'flex',
-                            justifyContent:
-                              'space-between',
-                            alignItems:
-                              'center',
-                            fontSize:
-                              '0.75rem'
-                          }}
-                        >
-                          <span
+                      (
+                        source,
+                        index
+                      ) => {
+
+                        const sourceId =
+                          source?.chunk_id ||
+                          source?.id ||
+                          source?.source ||
+                          index;
+
+
+                        const selectedId =
+                          selectedSource?.chunk_id ||
+                          selectedSource?.id ||
+                          selectedSource?.source ||
+                          null;
+
+
+                        const isSelected =
+                          String(
+                            selectedId
+                          ) ===
+                          String(
+                            sourceId
+                          );
+
+
+                        return (
+                          <div
+                            key={
+                              sourceId
+                            }
+                            onClick={() =>
+                              setSelectedSource(
+                                source
+                              )
+                            }
                             style={{
-                              overflow:
-                                'hidden',
-                              textOverflow:
-                                'ellipsis',
-                              whiteSpace:
-                                'nowrap',
-                              maxWidth:
-                                '200px'
+                              padding:
+                                '10px 12px',
+                              borderRadius:
+                                '8px',
+                              border:
+                                '1px solid ' +
+                                (
+                                  isSelected
+                                    ? 'var(--accent-purple)'
+                                    : 'var(--border-color)'
+                                ),
+                              background:
+                                isSelected
+                                  ? 'hsla(263, 85%, 65%, 0.08)'
+                                  : 'transparent',
+                              cursor:
+                                'pointer',
+                              display:
+                                'flex',
+                              justifyContent:
+                                'space-between',
+                              alignItems:
+                                'center',
+                              fontSize:
+                                '0.75rem',
+                              gap:
+                                '10px',
                             }}
                           >
-                            {src.metadata?.filename ||
-                              'Retrieved document'}{' '}
+
                             <span
                               style={{
-                                color:
-                                  'var(--text-muted)'
+                                overflow:
+                                  'hidden',
+                                textOverflow:
+                                  'ellipsis',
+                                whiteSpace:
+                                  'nowrap',
+                                maxWidth:
+                                  '210px',
                               }}
                             >
-                              [
-                              {src.chunk_id ||
-                                'chunk'}
-                              ]
-                            </span>
-                          </span>
 
-                          <span
-                            style={{
-                              fontWeight:
-                                'bold',
-                              color:
-                                'var(--accent-emerald)'
-                            }}
-                          >
-                            {Math.round(
-                              Number(
-                                src.relevance_score ||
-                                  0
-                              ) * 100
-                            )}
-                            %
-                          </span>
-                        </div>
-                      )
+                              {
+                                source?.metadata?.filename ||
+                                source?.filename ||
+                                'Retrieved document'
+                              }
+
+                              <span
+                                style={{
+                                  color:
+                                    'var(--text-muted)',
+                                }}
+                              >
+                                {' '}
+                                [
+                                {
+                                  source?.chunk_id ||
+                                  source?.id ||
+                                  'chunk'
+                                }
+                                ]
+                              </span>
+
+                            </span>
+
+
+                            <span
+                              style={{
+                                fontWeight:
+                                  'bold',
+                                color:
+                                  'var(--accent-emerald)',
+                              }}
+                            >
+                              {Math.round(
+                                Number(
+                                  source?.relevance_score ||
+                                    0
+                                ) * 100
+                              )}
+                              %
+                            </span>
+
+                          </div>
+                        );
+                      }
                     )}
+
                   </div>
+
                 </div>
               )}
+
             </div>
           )}
+
         </div>
+
       </div>
+
     </div>
   );
 }

@@ -31,6 +31,7 @@ from app.agents.query_understanding.schemas import (
 # Supported route names
 RouteName = Literal[
     "retrieval",
+    "general",
     "clarification",
 ]
 
@@ -96,6 +97,10 @@ def route_query(
     if query_type in SUPPORTED_RETRIEVAL_TYPES:
         return "retrieval"
 
+    # General-knowledge / conversational path.
+    if query_type == "general":
+        return "general"
+
     # New Milestone 3 clarification path.
     if query_type == AMBIGUOUS_QUERY_TYPE:
         return "clarification"
@@ -133,6 +138,12 @@ def get_route_reason(
             "semantic/exact retrieval."
         )
 
+    if query_type == "general":
+        return (
+            "General knowledge query routed directly "
+            "to the LLM."
+        )
+
     if query_type == "ambiguous":
         return (
             "Ambiguous query routed to the "
@@ -150,6 +161,7 @@ if __name__ == "__main__":
         "factual",
         "procedural",
         "comparative",
+        "general",
         "ambiguous",
     ]
 

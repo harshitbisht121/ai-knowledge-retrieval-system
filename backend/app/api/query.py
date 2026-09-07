@@ -1,9 +1,13 @@
 """
-Milestone 3 - Query API with Response Transparency.
+Milestone 3 - Query API with authentication.
 
 Flow:
 
     FastAPI
+        ↓
+    Authentication
+        ↓
+    Conversation ownership validation
         ↓
     Database Session
         ↓
@@ -24,23 +28,32 @@ Flow:
               ↓
            Retrieval
               ↓
-       Response Generation
-        ↓
-    Save Conversation
-        ↓
-    Response Transparency
-        ↓
-    Final JSON Response
+        Response Generation
+              ↓
+        Save Conversation
+              ↓
+        Response Transparency
+              ↓
+        Final JSON Response
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+)
 from sqlalchemy.orm import Session
 
+from app.core.database import get_db
+from app.core.models import (
+    Conversation,
+    User,
+)
+from app.dependencies.auth import get_current_user
 from app.models.request_models import QueryRequest
 from app.orchestration.workflow import run_workflow
-from app.core.database import get_db
 from app.transparency.service import build_transparency
 from app.voice.output import prepare_speech_text
 
@@ -54,24 +67,24 @@ router = APIRouter(
     "/query",
     summary="Query Documents",
     description=(
-        "Run the Milestone 2 + Milestone 3 LangGraph workflow "
-        "with conversation memory, clarification, and response transparency."
+        "Run the Milestone 2 + Milestone 3 "
+        "LangGraph workflow with authentication, "
+        "conversation memory, clarification, "
+        "voice support, and response transparency."
     ),
 )
 def query_documents(
     request: QueryRequest,
+    current_user: User = Depends(
+        get_current_user
+    ),
     db: Session = Depends(get_db),
 ):
     """
-    Execute the complete M3 query workflow.
+    Execute the complete authenticated M3 workflow.
 
-    A request without conversation_id remains compatible with
-    the earlier single-query workflow.
-
-    A request with conversation_id enables conversation memory.
-
-    Clarification fields are used when continuing a previous
-    clarification interaction.
+    Conversation IDs are checked before entering
+    the existing LangGraph workflow.
     """
 
     # Validate retrieval count.
@@ -81,8 +94,34 @@ def query_documents(
             detail="k must be at least 1.",
         )
 
+    # -------------------------------------------------------------
+    # Validate conversation ownership.
+    # -------------------------------------------------------------
+    if request.conversation_id:
+
+        conversation = (
+            db.query(Conversation)
+            .filter(
+                Conversation.id
+                == request.conversation_id,
+                Conversation.user_id
+                == current_user.id,
+            )
+            .first()
+        )
+
+        if conversation is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Conversation not found.",
+            )
+
     try:
+        # ---------------------------------------------------------
         # Execute the existing M3 LangGraph workflow.
+        #
+        # Authentication is handled outside the workflow.
+        # ---------------------------------------------------------
         result = run_workflow(
             query=request.query,
             k=request.k,
@@ -99,14 +138,18 @@ def query_documents(
             db=db,
         )
 
-        # Return workflow-level failures as API errors.
+        # ---------------------------------------------------------
+        # Workflow-level failures.
+        # ---------------------------------------------------------
         if result.get("error"):
             raise HTTPException(
                 status_code=500,
                 detail=result["error"],
             )
 
-        # Convert QueryUnderstandingResult into JSON-safe data.
+        # ---------------------------------------------------------
+        # Query Understanding result.
+        # ---------------------------------------------------------
         query_analysis = result.get(
             "query_analysis"
         )
@@ -118,7 +161,9 @@ def query_documents(
                 query_analysis.model_dump()
             )
 
-        # Get clarification information.
+        # ---------------------------------------------------------
+        # Clarification information.
+        # ---------------------------------------------------------
         clarification_required = result.get(
             "clarification_required",
             False,
@@ -128,7 +173,9 @@ def query_documents(
             "clarification_question"
         )
 
-        # Get retrieval and generated-response data.
+        # ---------------------------------------------------------
+        # Retrieval and generated response.
+        # ---------------------------------------------------------
         retrieval_result = result.get(
             "retrieval_result"
         )
@@ -137,14 +184,22 @@ def query_documents(
             "response"
         )
 
-        # Build the dedicated transparency object from retrieval data.
+        # ---------------------------------------------------------
+        # Response transparency.
+        # ---------------------------------------------------------
         transparency = build_transparency(
             retrieval_result
         )
 
+        # ---------------------------------------------------------
+        # Prepare clean text for browser TTS.
+        # ---------------------------------------------------------
         speech_text = (
             prepare_speech_text(
-                response_result.get("answer", "")
+                response_result.get(
+                    "answer",
+                    "",
+                )
             )
             if response_result
             else None
@@ -153,11 +208,15 @@ def query_documents(
         return {
             "success": True,
 
-            # Preserve the original user query in the API response.
+            # Preserve original user input.
             "query": request.query,
 
             "conversation_id": result.get(
                 "conversation_id"
+            ),
+
+            "user_id": str(
+                current_user.id
             ),
 
             "query_understanding": (
@@ -186,7 +245,6 @@ def query_documents(
 
             "speech_text": speech_text,
 
-            # Dedicated Response Transparency information.
             "transparency": transparency,
         }
 

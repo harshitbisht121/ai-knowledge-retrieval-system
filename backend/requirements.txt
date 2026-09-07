@@ -18,3 +18,7 @@ python-dotenv
 
 SQLAlchemy
 PyMySQL
+
+bcrypt
+python-jose[cryptography]==3.5.0
+email-validator

@@ -25,8 +25,25 @@ SessionLocal = sessionmaker(
 
 Base = declarative_base()
 
+
+def init_db() -> None:
+    """
+    Create all database tables that do not already exist.
+
+    This is safe to call every time the FastAPI application starts.
+    Existing tables are not deleted or recreated.
+    """
+    # Import models here so SQLAlchemy knows about all registered tables
+    # before create_all() is called.
+    from app.core import models  # noqa: F401
+
+    Base.metadata.create_all(bind=engine)
+
+
 def get_db() -> Generator[Session, None, None]:
-    """Provide a database session."""
+    """
+    Provide a database session.
+    """
     db = SessionLocal()
 
     try:

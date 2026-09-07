@@ -27,16 +27,19 @@ def classify_query(
 You are the query classification component of a knowledge
 retrieval and conversational question-answering system.
 
-Classify the user's query into EXACTLY ONE of these four categories:
+Classify the user's query into EXACTLY ONE of these five categories:
 
 1. factual
-   - The user asks for a clearly identifiable fact, definition,
-     explanation, event, person, entity, or specific information.
-   - The subject of the question is sufficiently clear.
+   - The user asks for a fact, definition, explanation, event,
+     person, entity, or specific information that is expected to
+     be answered from the user's uploaded knowledge base or
+     project-specific documents.
+   - The query refers to information that may exist in the
+     uploaded documents.
    - Examples:
        "What does the Retrieval Agent do?"
-       "When was the Tribunals Reforms Bill passed?"
-       "What is Agentic AI?"
+       "What is the leave policy in the uploaded document?"
+       "When was the Tribunals Reforms Bill mentioned in the document?"
 
 2. procedural
    - The user asks how to perform something, how something works
@@ -54,7 +57,21 @@ Classify the user's query into EXACTLY ONE of these four categories:
        "What is the difference between semantic and exact search?"
        "Compare the Retrieval Agent and Clarification Agent."
 
-4. ambiguous
+4. general
+   - The user asks a general-knowledge, everyday, conversational,
+     or common question that does NOT depend on the uploaded
+     knowledge base.
+   - These questions should be answered directly using the LLM's
+     general knowledge.
+   - Examples:
+       "What is the capital of the United States?"
+       "Who is the Prime Minister of Kenya?"
+       "What is a computer?"
+       "What is artificial intelligence?"
+       "How are you?"
+       "Hello"
+       
+5. ambiguous
    - The query is unclear, incomplete, underspecified, or does not
      provide enough information to determine exactly what the user
      is referring to.
@@ -95,6 +112,12 @@ Classify the user's query into EXACTLY ONE of these four categories:
 
 IMPORTANT RULES:
 
+- Use "factual", "procedural", or "comparative" when the query is
+  intended to be answered using the uploaded knowledge base.
+- Use "general" for ordinary general-knowledge or conversational
+  questions that do not depend on the uploaded knowledge base.
+- Do not route a normal general-knowledge question to retrieval
+  merely because it is phrased as a factual question.
 - Return exactly ONE category.
 - Do not use "ambiguous" merely because a query is short.
 - Use "ambiguous" when the missing information prevents a precise
@@ -127,7 +150,31 @@ Examples for the current knowledge-base style:
 "How does semantic retrieval work?"
 → procedural
 
-"Compare semantic search and exact search."
+"What is the capital of the United States?"
+→ general
+
+"Who is the Prime Minister of Kenya?"
+→ general
+
+"What is artificial intelligence?"
+→ general
+
+"How are you?"
+→ general
+
+"Hello"
+→ general
+
+"What does the Retrieval Agent do?"
+→ factual
+
+"What is the leave policy in the uploaded document?"
+→ factual
+
+"How does the retrieval pipeline work according to the document?"
+→ procedural
+
+"Compare semantic search and exact search in the project."
 → comparative
 
 "What about the new law?"

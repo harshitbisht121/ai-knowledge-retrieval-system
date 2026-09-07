@@ -305,7 +305,7 @@ def memory_node(
         db = _get_db(
             state
         )
-
+        
         context = _memory_agent.get_context(
             db=db,
             conversation_id=conversation_id,
@@ -725,6 +725,98 @@ def response_generation_node(
             ),
         }
 
+# =====================================================================
+# General Knowledge - Direct LLM Response
+# =====================================================================
+
+def general_response_node(
+    state: WorkflowState,
+) -> WorkflowState:
+    """
+    Generate a response for general-knowledge or conversational
+    queries without using the knowledge-base retrieval path.
+    """
+
+    if _has_error(state):
+        return state
+
+    query = state.get(
+        "query",
+        "",
+    ).strip()
+
+    if not query:
+        return {
+            **state,
+            "error": (
+                "Cannot generate general response "
+                "because query is empty."
+            ),
+        }
+
+    prompt = f"""
+You are the general-purpose AI assistant for QueryNest.
+
+Answer the user's question clearly, naturally, and accurately
+using your general knowledge.
+
+This is a general-knowledge or conversational query.
+Do not claim that the answer came from the user's knowledge base.
+Do not invent document sources or citations.
+
+User query:
+{query}
+"""
+
+    try:
+        response = _llm.invoke(
+            prompt
+        )
+
+        answer = getattr(
+            response,
+            "content",
+            "",
+        )
+
+        if isinstance(
+            answer,
+            list,
+        ):
+            answer = " ".join(
+                str(item)
+                for item in answer
+            )
+
+        if not isinstance(
+            answer,
+            str,
+        ):
+            answer = str(answer)
+
+        answer = answer.strip()
+
+        if not answer:
+            raise ValueError(
+                "General LLM returned an empty response."
+            )
+
+        return {
+            **state,
+            "response": {
+                "answer": answer,
+                "sources": [],
+                "confidence": 0.0,
+            },
+        }
+
+    except Exception as error:
+        return {
+            **state,
+            "error": (
+                f"General response generation failed: {error}"
+            ),
+        }
 
 # =====================================================================
 # Milestone 3 - Save Memory Node
@@ -786,12 +878,35 @@ def save_memory_node(
         db = _get_db(
             state
         )
+        response_metadata = {
+            "sources": response.get(
+                "sources",
+                [],
+            ),
+            "confidence": response.get(
+                "confidence",
+                0.0,
+            ),
+            "speech_text": state.get(
+                "speech_text"
+            ),
+            "retrieval_results": (
+                state.get(
+                    "retrieval_result",
+                    {}
+                ).get(
+                    "results",
+                    []
+                )
+            ),
+        }
 
         _memory_agent.store_turn(
             db=db,
             conversation_id=conversation_id,
             user_query=query,
             ai_response=answer,
+            response_metadata=response_metadata,
         )
 
         return state

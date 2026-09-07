@@ -1,3 +1,16 @@
+/*
+ * QueryNest API Service
+ *
+ * Centralized communication layer for the FastAPI backend.
+ *
+ * Responsibilities:
+ * - Authentication
+ * - Documents
+ * - Conversations
+ * - RAG queries
+ * - Milestone 3 clarification/memory support
+ */
+
 const API_BASE_URL = (
   import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 ).replace(/\/$/, '');
@@ -6,12 +19,64 @@ let useMock = false;
 
 const mockDocuments = [];
 
+
+/* ------------------------------------------------------------------ */
+/* Mock mode                                                          */
+/* ------------------------------------------------------------------ */
+
 export const setMockMode = (enable) => {
-  useMock = enable;
+  useMock = Boolean(enable);
 };
 
 export const getMockMode = () => useMock;
 
+
+/* ------------------------------------------------------------------ */
+/* Authentication helpers                                             */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Return the currently stored authentication token.
+ *
+ * localStorage is checked first because that is the normal
+ * authenticated session storage used by QueryNest.
+ */
+export const getAuthToken = () => {
+  return (
+    localStorage.getItem('qn_auth_token') ||
+    sessionStorage.getItem('qn_auth_token')
+  );
+};
+
+
+/*
+ * Build common authenticated headers.
+ *
+ * The backend expects:
+ * Authorization: Bearer <token>
+ */
+export function getAuthHeaders(includeJsonContentType = false) {
+  const headers = {};
+
+  if (includeJsonContentType) {
+    headers['Content-Type'] = 'application/json';
+  }
+
+  headers.Accept = 'application/json';
+
+  const token = getAuthToken();
+
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  return headers;
+};
+
+
+/* ------------------------------------------------------------------ */
+/* Response handling                                                   */
+/* ------------------------------------------------------------------ */
 
 async function parseResponse(response) {
   let data = {};
@@ -19,29 +84,171 @@ async function parseResponse(response) {
   try {
     data = await response.json();
   } catch {
-    // Keep an empty object when the response has no JSON body.
+    // Some responses may not contain JSON.
   }
 
   if (!response.ok) {
-    throw new Error(
-      data.detail ||
-      data.message ||
-      `Request failed (${response.status})`
-    );
+    let message = `Request failed (${response.status})`;
+
+    if (typeof data?.detail === 'string') {
+      message = data.detail;
+    } else if (typeof data?.message === 'string') {
+      message = data.message;
+    } else if (Array.isArray(data?.detail)) {
+      message = data.detail
+        .map((item) => item?.msg || 'Invalid request.')
+        .join(', ');
+    }
+
+    const error = new Error(message);
+    error.status = response.status;
+    error.data = data;
+
+    throw error;
   }
 
   return data;
 }
 
 
-// Fetch indexed documents.
+/*
+ * Handle authentication failures consistently.
+ */
+export const isUnauthorizedError = (error) => {
+  return error?.status === 401;
+};
+
+
+/* ------------------------------------------------------------------ */
+/* Authentication APIs                                                 */
+/* ------------------------------------------------------------------ */
+
+
+/*
+ * Log in an existing user.
+ */
+export async function loginUser(email, password) {
+  const response = await fetch(
+    `${API_BASE_URL}/auth/login`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({
+        email: email.trim(),
+        password,
+      }),
+    },
+  );
+
+  return parseResponse(response);
+}
+
+
+/*
+ * Register a new user.
+ */
+export async function registerUser(
+  fullName,
+  email,
+  password,
+) {
+  const response = await fetch(
+    `${API_BASE_URL}/auth/register`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({
+        full_name: fullName.trim(),
+        email: email.trim(),
+        password,
+      }),
+    },
+  );
+
+  return parseResponse(response);
+}
+
+
+/*
+ * Validate the saved token and retrieve the current user.
+ */
+export async function getCurrentUser() {
+  const token = getAuthToken();
+
+  if (!token) {
+    throw new Error('Authentication token not found.');
+  }
+
+  const response = await fetch(
+    `${API_BASE_URL}/auth/me`,
+    {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  );
+
+  return parseResponse(response);
+}
+
+
+/*
+ * Log out the current user on the backend.
+ *
+ * JWT is currently stateless, so local session data is also
+ * cleared by AuthContext after this request.
+ */
+export async function logoutUser(token = null) {
+  const authToken = token || getAuthToken();
+
+  if (!authToken) {
+    return {
+      success: true,
+      message: 'Already signed out.',
+    };
+  }
+
+  const response = await fetch(
+    `${API_BASE_URL}/auth/logout`,
+    {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${authToken}`,
+      },
+    },
+  );
+
+  return parseResponse(response);
+}
+
+
+/* ------------------------------------------------------------------ */
+/* Document APIs                                                       */
+/* ------------------------------------------------------------------ */
+
+
+/*
+ * Fetch indexed documents.
+ */
 export async function getDocuments() {
   if (useMock) {
     return [...mockDocuments];
   }
 
   const response = await fetch(
-    `${API_BASE_URL}/documents`
+    `${API_BASE_URL}/documents`,
+    {
+      headers: getAuthHeaders(),
+    },
   );
 
   const data = await parseResponse(response);
@@ -52,10 +259,12 @@ export async function getDocuments() {
 }
 
 
-// Upload and index a document.
+/*
+ * Upload and index a document.
+ */
 export async function uploadDocument(
   file,
-  onProgress = () => {}
+  onProgress = () => {},
 ) {
   if (useMock) {
     onProgress(100);
@@ -93,13 +302,27 @@ export async function uploadDocument(
 
     xhr.open(
       'POST',
-      `${API_BASE_URL}/upload`
+      `${API_BASE_URL}/upload`,
+    );
+
+    const token = getAuthToken();
+
+    if (token) {
+      xhr.setRequestHeader(
+        'Authorization',
+        `Bearer ${token}`,
+      );
+    }
+
+    xhr.setRequestHeader(
+      'Accept',
+      'application/json',
     );
 
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) {
         const percent = Math.round(
-          (event.loaded / event.total) * 100
+          (event.loaded / event.total) * 100,
         );
 
         onProgress(percent);
@@ -110,14 +333,12 @@ export async function uploadDocument(
       let data = {};
 
       try {
-        data = JSON.parse(
-          xhr.responseText
-        );
+        data = JSON.parse(xhr.responseText);
       } catch {
         reject(
           new Error(
-            'The backend returned an invalid response.'
-          )
+            'The backend returned an invalid response.',
+          ),
         );
 
         return;
@@ -135,36 +356,38 @@ export async function uploadDocument(
           accepted: true,
           jobId: data.jobId,
           documentId: data.documentId,
-          filename:
-            data.filename || file.name,
+          filename: data.filename || file.name,
           message: data.message,
         });
 
         return;
       }
 
-      reject(
-        new Error(
-          data.message ||
-          data.detail ||
-          `Upload failed (${xhr.status})`
-        )
-      );
+      const message =
+        data.message ||
+        data.detail ||
+        `Upload failed (${xhr.status})`;
+
+      const error = new Error(message);
+      error.status = xhr.status;
+      error.data = data;
+
+      reject(error);
     };
 
     xhr.onerror = () => {
       reject(
         new Error(
-          'Could not connect to the FastAPI backend.'
-        )
+          'Could not connect to the FastAPI backend.',
+        ),
       );
     };
 
     xhr.onabort = () => {
       reject(
         new Error(
-          'The upload was cancelled.'
-        )
+          'The upload was cancelled.',
+        ),
       );
     };
 
@@ -173,7 +396,9 @@ export async function uploadDocument(
 }
 
 
-// Check upload/indexing status.
+/*
+ * Check document-processing status.
+ */
 export async function getUploadStatus(jobId) {
   if (useMock) {
     return {
@@ -183,8 +408,7 @@ export async function getUploadStatus(jobId) {
       status: 'completed',
       stage: 'completed',
       progress: 100,
-      message:
-        'Document processed successfully.',
+      message: 'Document processed successfully.',
       chunksCount: 0,
       embeddingsCount: 0,
       vectorsStored: 0,
@@ -193,18 +417,23 @@ export async function getUploadStatus(jobId) {
   }
 
   const response = await fetch(
-    `${API_BASE_URL}/upload/status/${encodeURIComponent(jobId)}`
+    `${API_BASE_URL}/upload/status/${encodeURIComponent(jobId)}`,
+    {
+      headers: getAuthHeaders(),
+    },
   );
 
   return parseResponse(response);
 }
 
 
-// Delete an indexed document.
+/*
+ * Delete an indexed document.
+ */
 export async function deleteDocument(id) {
   if (useMock) {
     const index = mockDocuments.findIndex(
-      (doc) => doc.id === id
+      (doc) => doc.id === id,
     );
 
     if (index >= 0) {
@@ -220,7 +449,40 @@ export async function deleteDocument(id) {
     `${API_BASE_URL}/documents/${encodeURIComponent(id)}`,
     {
       method: 'DELETE',
-    }
+      headers: getAuthHeaders(),
+    },
+  );
+
+  return parseResponse(response);
+}
+
+
+/* ------------------------------------------------------------------ */
+/* Conversation APIs                                                   */
+/* ------------------------------------------------------------------ */
+
+
+/*
+ * Create a new persistent conversation.
+ *
+ * IMPORTANT:
+ * The backend now generates the conversation UUID.
+ * The frontend does not send a conversation_id.
+ */
+export async function createConversation() {
+  if (useMock) {
+    return {
+      success: true,
+      conversation_id: crypto.randomUUID(),
+    };
+  }
+
+  const response = await fetch(
+    `${API_BASE_URL}/conversations`,
+    {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    },
   );
 
   return parseResponse(response);
@@ -228,41 +490,8 @@ export async function deleteDocument(id) {
 
 
 /*
- * Conversation APIs
+ * Fetch all conversations belonging to the logged-in user.
  */
-
-// Create a new persistent conversation.
-export async function createConversation(
-  conversationId = null
-) {
-  if (useMock) {
-    return {
-      success: true,
-      conversation_id:
-        conversationId || crypto.randomUUID(),
-    };
-  }
-
-  const body = conversationId
-    ? { conversation_id: conversationId }
-    : {};
-
-  const response = await fetch(
-    `${API_BASE_URL}/conversations`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    }
-  );
-
-  return parseResponse(response);
-}
-
-
-// Fetch all saved conversations.
 export async function getConversations() {
   if (useMock) {
     return {
@@ -273,20 +502,25 @@ export async function getConversations() {
   }
 
   const response = await fetch(
-    `${API_BASE_URL}/conversations`
+    `${API_BASE_URL}/conversations`,
+    {
+      headers: getAuthHeaders(),
+    },
   );
 
   return parseResponse(response);
 }
 
 
-// Fetch one conversation with all messages.
+/*
+ * Fetch one conversation with its messages.
+ */
 export async function getConversation(
-  conversationId
+  conversationId,
 ) {
   if (!conversationId) {
     throw new Error(
-      'conversationId is required.'
+      'conversationId is required.',
     );
   }
 
@@ -300,21 +534,26 @@ export async function getConversation(
 
   const response = await fetch(
     `${API_BASE_URL}/conversations/${encodeURIComponent(
-      conversationId
-    )}`
+      conversationId,
+    )}`,
+    {
+      headers: getAuthHeaders(),
+    },
   );
 
   return parseResponse(response);
 }
 
 
-// Fetch memory context for a conversation.
+/*
+ * Fetch structured memory context for a conversation.
+ */
 export async function getConversationContext(
-  conversationId
+  conversationId,
 ) {
   if (!conversationId) {
     throw new Error(
-      'conversationId is required.'
+      'conversationId is required.',
     );
   }
 
@@ -328,21 +567,26 @@ export async function getConversationContext(
 
   const response = await fetch(
     `${API_BASE_URL}/conversations/${encodeURIComponent(
-      conversationId
-    )}/context`
+      conversationId,
+    )}/context`,
+    {
+      headers: getAuthHeaders(),
+    },
   );
 
   return parseResponse(response);
 }
 
 
-// Delete a saved conversation.
+/*
+ * Delete a saved conversation.
+ */
 export async function deleteConversation(
-  conversationId
+  conversationId,
 ) {
   if (!conversationId) {
     throw new Error(
-      'conversationId is required.'
+      'conversationId is required.',
     );
   }
 
@@ -356,11 +600,12 @@ export async function deleteConversation(
 
   const response = await fetch(
     `${API_BASE_URL}/conversations/${encodeURIComponent(
-      conversationId
+      conversationId,
     )}`,
     {
       method: 'DELETE',
-    }
+      headers: getAuthHeaders(),
+    },
   );
 
   return parseResponse(response);
@@ -368,27 +613,65 @@ export async function deleteConversation(
 
 
 /*
- * RAG query API
+ * Save a conversation turn manually.
  */
+export async function saveConversationTurn(
+  conversationId,
+  userQuery,
+  aiResponse = null,
+) {
+  if (!conversationId) {
+    throw new Error(
+      'conversationId is required.',
+    );
+  }
 
-// Send a text or voice-transcribed query through the M3 workflow.
-//
-// conversationId enables persistent conversation memory.
-// clarification fields allow continuation after a clarification question.
+  const response = await fetch(
+    `${API_BASE_URL}/conversations/${encodeURIComponent(
+      conversationId,
+    )}/turns`,
+    {
+      method: 'POST',
+      headers: getAuthHeaders(true),
+      body: JSON.stringify({
+        user_query: userQuery,
+        ai_response: aiResponse,
+      }),
+    },
+  );
+
+  return parseResponse(response);
+}
+
+
+/* ------------------------------------------------------------------ */
+/* RAG / Milestone 3 Query API                                        */
+/* ------------------------------------------------------------------ */
+
+
+/*
+ * Send a text or voice-transcribed query.
+ *
+ * conversationId enables persistent memory.
+ * clarification fields continue a clarification flow.
+ */
 export async function sendChatMessage(
   message,
   _history = [],
   conversationId = null,
   clarificationAnswer = null,
   clarificationQuestion = null,
-  originalQuery = null
+  originalQuery = null,
 ) {
+  if (!message || !message.trim()) {
+    throw new Error('Message cannot be empty.');
+  }
+
   if (useMock) {
     return {
       success: true,
       query: message,
-      conversation_id:
-        conversationId || null,
+      conversation_id: conversationId || null,
       query_understanding: null,
       route: 'retrieval',
       route_reason: 'Mock response',
@@ -401,6 +684,7 @@ export async function sendChatMessage(
           exact_candidates: 0,
           merged_candidates: 0,
           returned_results: 0,
+          completeness_query: false,
         },
       },
       response: {
@@ -417,13 +701,10 @@ export async function sendChatMessage(
     k: 3,
   };
 
-  // Attach the conversation when available.
   if (conversationId) {
-    requestBody.conversation_id =
-      conversationId;
+    requestBody.conversation_id = conversationId;
   }
 
-  // Attach clarification data only when continuing a clarification flow.
   if (clarificationAnswer) {
     requestBody.clarification_answer =
       clarificationAnswer;
@@ -443,26 +724,18 @@ export async function sendChatMessage(
     `${API_BASE_URL}/query`,
     {
       method: 'POST',
-      headers: {
-        'Content-Type':
-          'application/json',
-        'Accept':
-          'application/json',
-      },
-      body: JSON.stringify(
-        requestBody
-      ),
-    }
+      headers: getAuthHeaders(true),
+      body: JSON.stringify(requestBody),
+    },
   );
 
-  const data =
-    await parseResponse(response);
+  const data = await parseResponse(response);
 
   if (!data.success) {
     throw new Error(
       data.detail ||
       data.message ||
-      'Query failed.'
+      'Query failed.',
     );
   }
 

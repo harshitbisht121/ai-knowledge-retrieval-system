@@ -7,6 +7,7 @@ class QueryClassification(BaseModel):
         "factual",
         "procedural",
         "comparative",
+        "general",
         "ambiguous"
     ] = Field(
         description="The type of query based on the user's intent."
@@ -30,6 +31,7 @@ class QueryUnderstandingResult(BaseModel):
         "factual",
         "procedural",
         "comparative",
+        "general",
         "ambiguous"
     ] = Field(
         description="The classified type of query."
