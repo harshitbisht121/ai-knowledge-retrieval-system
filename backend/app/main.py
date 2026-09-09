@@ -17,6 +17,13 @@ from app.api.query import router as query_router
 from app.api.upload import router as upload_router
 from app.api.conversations import router as conversations_router
 from app.api.voice import router as voice_router
+
+# -------------------------------------------------------------
+# Milestone 4 imports
+# -------------------------------------------------------------
+from app.analytics.router import router as analytics_router
+from app.knowledge_gaps.router import router as knowledge_gaps_router
+
 from app.core.config import CORS_ALLOW_ORIGINS
 
 
@@ -75,4 +82,15 @@ app.include_router(
 
 app.include_router(
     voice_router
+)
+
+# -------------------------------------------------------------
+# Milestone 4 API routes
+# -------------------------------------------------------------
+app.include_router(
+    analytics_router
+)
+
+app.include_router(
+    knowledge_gaps_router
 )

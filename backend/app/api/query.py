@@ -39,6 +39,8 @@ Flow:
 
 from __future__ import annotations
 
+import time
+
 from fastapi import (
     APIRouter,
     Depends,
@@ -46,12 +48,19 @@ from fastapi import (
 )
 from sqlalchemy.orm import Session
 
+from app.analytics.schemas import QueryAnalyticsCreate
+from app.analytics.service import log_query
 from app.core.database import get_db
 from app.core.models import (
     Conversation,
     User,
 )
 from app.dependencies.auth import get_current_user
+from app.knowledge_gaps.schemas import KnowledgeGapCreate
+from app.knowledge_gaps.service import (
+    create_knowledge_gap,
+    detect_knowledge_gap,
+)
 from app.models.request_models import QueryRequest
 from app.orchestration.workflow import run_workflow
 from app.transparency.service import build_transparency
@@ -86,6 +95,8 @@ def query_documents(
     Conversation IDs are checked before entering
     the existing LangGraph workflow.
     """
+
+    analytics_start = time.perf_counter()
 
     # Validate retrieval count.
     if request.k < 1:
@@ -204,6 +215,116 @@ def query_documents(
             if response_result
             else None
         )
+
+        # ---------------------------------------------------------
+        # Milestone 4 - Query Analytics + Knowledge Gap Detection.
+        #
+        # These values are derived from the existing M3 workflow.
+        # Analytics failures are intentionally isolated so that a
+        # problem in reporting never breaks the user's query.
+        # ---------------------------------------------------------
+        response_time = time.perf_counter() - analytics_start
+
+        route = result.get("route")
+
+        query_type = None
+
+        if query_analysis is not None:
+            query_type = getattr(
+                query_analysis,
+                "query_type",
+                None,
+            )
+
+        # Retrieval results are only meaningful for retrieval routes.
+        retrieval_count = 0
+
+        if (
+            route == "retrieval"
+            and isinstance(retrieval_result, dict)
+        ):
+            retrieval_items = retrieval_result.get(
+                "results",
+                [],
+            )
+
+            if isinstance(retrieval_items, list):
+                retrieval_count = len(retrieval_items)
+
+        confidence_score = None
+
+        if isinstance(response_result, dict):
+            raw_confidence = response_result.get(
+                "confidence"
+            )
+
+            if isinstance(raw_confidence, (int, float)):
+                confidence_score = float(raw_confidence)
+
+        answer_text = ""
+
+        if isinstance(response_result, dict):
+            answer_text = str(
+                response_result.get(
+                    "answer",
+                    "",
+                )
+                or ""
+            ).strip()
+
+        # A clarification request is not a resolved answer.
+        if clarification_required:
+            response_status = "unanswered"
+        elif answer_text:
+            response_status = "answered"
+        else:
+            response_status = "unanswered"
+
+        try:
+            analytics_data = QueryAnalyticsCreate(
+                user_id=str(current_user.id),
+                conversation_id=(
+                    result.get("conversation_id")
+                ),
+                query_text=request.query,
+                query_type=query_type,
+                response_status=response_status,
+                confidence_score=confidence_score,
+                response_time=response_time,
+            )
+
+            log_query(
+                db=db,
+                data=analytics_data,
+            )
+
+            # Do not classify general-LLM queries as knowledge gaps.
+            # In the current workflow those queries intentionally have
+            # no retrieval results and may expose confidence=0.0.
+            if route == "retrieval":
+                is_gap, gap_reason = detect_knowledge_gap(
+                    response_status=response_status,
+                    confidence_score=confidence_score,
+                    retrieval_count=retrieval_count,
+                )
+
+                if is_gap and gap_reason:
+                    gap_data = KnowledgeGapCreate(
+                        query_text=request.query,
+                        query_type=query_type,
+                        reason=gap_reason,
+                        confidence_score=confidence_score,
+                    )
+
+                    create_knowledge_gap(
+                        db=db,
+                        data=gap_data,
+                    )
+
+        except Exception:
+            # Milestone 4 analytics must never take down the core M3
+            # query path. Roll back any failed analytics transaction.
+            db.rollback()
 
         return {
             "success": True,
