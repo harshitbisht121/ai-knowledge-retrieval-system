@@ -146,6 +146,7 @@ def query_documents(
             original_query=(
                 request.original_query
             ),
+            user_id=str(current_user.id),
             db=db,
         )
 

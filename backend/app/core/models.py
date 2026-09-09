@@ -5,6 +5,7 @@ Models:
 - User
 - Conversation
 - ConversationMessage
+- KnowledgeBaseDocument
 """
 
 from __future__ import annotations
@@ -74,6 +75,13 @@ class User(Base):
 
     conversations = relationship(
         "Conversation",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+
+    # User-specific knowledge base documents
+    knowledge_base_documents = relationship(
+        "KnowledgeBaseDocument",
         back_populates="user",
         cascade="all, delete-orphan",
     )
@@ -181,4 +189,73 @@ class ConversationMessage(Base):
     conversation = relationship(
         "Conversation",
         back_populates="messages",
+    )
+
+
+class KnowledgeBaseDocument(Base):
+    """
+    Represents a document uploaded by a specific user
+    to their personal knowledge base.
+    """
+
+    __tablename__ = "knowledge_base_documents"
+
+    id = Column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+    )
+
+    user_id = Column(
+        String(36),
+        ForeignKey(
+            "users.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+
+    filename = Column(
+        String(255),
+        nullable=False,
+    )
+
+    original_filename = Column(
+        String(255),
+        nullable=True,
+    )
+
+    file_type = Column(
+        String(50),
+        nullable=True,
+    )
+
+    file_size = Column(
+        Integer,
+        nullable=True,
+    )
+
+    status = Column(
+        String(50),
+        nullable=False,
+        default="processing",
+    )
+
+    created_at = Column(
+        DateTime,
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    updated_at = Column(
+        DateTime,
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    user = relationship(
+        "User",
+        back_populates="knowledge_base_documents",
     )

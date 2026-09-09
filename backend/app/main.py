@@ -17,7 +17,7 @@ from app.api.query import router as query_router
 from app.api.upload import router as upload_router
 from app.api.conversations import router as conversations_router
 from app.api.voice import router as voice_router
-
+from app.api.knowledge_base import router as knowledge_base_router
 # -------------------------------------------------------------
 # Milestone 4 imports
 # -------------------------------------------------------------
@@ -82,6 +82,10 @@ app.include_router(
 
 app.include_router(
     voice_router
+)
+
+app.include_router(
+    knowledge_base_router
 )
 
 # -------------------------------------------------------------

@@ -44,6 +44,7 @@ class WorkflowState(TypedDict, total=False):
 
     query: str
     k: int
+    user_id: str
 
     # ==============================================================
     # Milestone 2 - Query Understanding

@@ -660,6 +660,7 @@ def retrieval_node(
             _retrieval_agent.run(
                 analysis,
                 k=k,
+                user_id=state.get("user_id"),
             )
         )
 

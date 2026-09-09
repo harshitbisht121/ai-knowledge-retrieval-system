@@ -12,6 +12,7 @@ from app.analytics import models as analytics_models  # noqa: F401
 from app.knowledge_gaps import models as knowledge_gap_models  # noqa: F401
 
 
+
 # ------------------------------------------------------------
 # Alembic configuration
 # ------------------------------------------------------------

@@ -25,7 +25,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.rag.chromadb_service import search_documents
+from app.rag.chromadb_service import (
+    search_documents,
+    search_documents_for_user
+)
 from app.rag.embedding import (
     embed_chunks,
     load_embedding_model,
@@ -128,6 +131,7 @@ def build_semantic_results(
 def search_semantic(
     query: str,
     k: int = 5,
+    user_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """
     Perform semantic retrieval against the existing ChromaDB index.
@@ -138,6 +142,9 @@ def search_semantic(
 
         k:
             Number of semantic candidates to retrieve.
+
+        user_id:
+            Optional user ID to restrict search to a specific user's knowledge base.
 
     Returns:
         A list of retrieval results using the common structure:
@@ -197,10 +204,17 @@ def search_semantic(
     # -------------------------------------------------------------
 
     try:
-        chroma_results = search_documents(
-            query_embedding,
-            k,
-        )
+        if user_id:
+            chroma_results = search_documents_for_user(
+                query_embedding,
+                user_id,
+                k,
+            )
+        else:
+            chroma_results = search_documents(
+                query_embedding,
+                k,
+            )
 
     except Exception as error:
         print(

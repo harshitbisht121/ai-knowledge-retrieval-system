@@ -332,6 +332,7 @@ def run_workflow(
     clarification_answer: str | None = None,
     clarification_question: str | None = None,
     original_query: str | None = None,
+    user_id: str | None = None,
     db: Session | None = None,
 ) -> dict[str, Any]:
     """
@@ -397,6 +398,7 @@ def run_workflow(
     initial_state: WorkflowState = {
         "query": query.strip(),
         "k": k,
+        "user_id": user_id if user_id else "",
     }
 
     # Optional Milestone 3 values

@@ -26,10 +26,16 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.rag.chromadb_service import search_exact_documents
+from app.rag.chromadb_service import (
+    search_exact_documents,
+    search_exact_documents_for_user
+)
 
 
-def search_exact(exact_terms: list[str]) -> list[dict[str, Any]]:
+def search_exact(
+    exact_terms: list[str],
+    user_id: str | None = None
+) -> list[dict[str, Any]]:
     """
     Search the indexed knowledge base using exact terms.
 
@@ -94,7 +100,10 @@ def search_exact(exact_terms: list[str]) -> list[dict[str, Any]]:
     # 4. Reuse the existing Milestone 1 exact-search logic
     # ---------------------------------------------------------
 
-    exact_results = search_exact_documents(unique_terms)
+    if user_id:
+        exact_results = search_exact_documents_for_user(unique_terms, user_id)
+    else:
+        exact_results = search_exact_documents(unique_terms)
 
     # ---------------------------------------------------------
     # 5. Normalize results into the common Retrieval format

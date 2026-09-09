@@ -653,6 +653,7 @@ class RetrievalAgent:
         query_analysis: QueryUnderstandingResult,
         *,
         k: int | None = None,
+        user_id: str | None = None,
     ) -> dict[str, Any]:
 
         self._validate_query_analysis(
@@ -709,6 +710,7 @@ class RetrievalAgent:
         semantic_results = search_semantic(
             query=search_query,
             k=semantic_k,
+            user_id=user_id,
         )
 
         if not isinstance(
@@ -726,7 +728,8 @@ class RetrievalAgent:
         if exact_terms:
 
             exact_results = search_exact(
-                exact_terms
+                exact_terms,
+                user_id=user_id,
             )
 
             if not isinstance(
@@ -835,11 +838,13 @@ class RetrievalAgent:
         query_analysis: QueryUnderstandingResult,
         *,
         k: int | None = None,
+        user_id: str | None = None,
     ) -> dict[str, Any]:
 
         return self.retrieve(
             query_analysis,
             k=k,
+            user_id=user_id,
         )
 
 

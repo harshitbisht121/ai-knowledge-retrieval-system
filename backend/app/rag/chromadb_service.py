@@ -73,6 +73,18 @@ def delete_documents(document_id):
     )
 
 
+def delete_documents_for_user(document_id, user_id):
+    """Delete vectors for a specific document owned by user."""
+    collection.delete(
+        where={
+            "$and": [
+                {"document_id": document_id},
+                {"user_id": user_id},
+            ]
+        }
+    )
+
+
 def search_documents(
     query_embedding,
     k=3,
@@ -83,6 +95,21 @@ def search_documents(
             query_embedding
         ],
         n_results=k,
+    )
+
+
+def search_documents_for_user(
+    query_embedding,
+    user_id,
+    k=3,
+):
+    """Semantic search filtered by user_id."""
+    return collection.query(
+        query_embeddings=[
+            query_embedding
+        ],
+        n_results=k,
+        where={"user_id": user_id},
     )
 
 
@@ -131,6 +158,29 @@ def search_exact_documents(
         ]
     )
 
+    return _process_exact_search_results(stored_data, terms)
+
+
+def search_exact_documents_for_user(
+    terms,
+    user_id,
+):
+    """Exact search filtered by user_id."""
+    if not terms:
+        return []
+
+    stored_data = collection.get(
+        where={"user_id": user_id},
+        include=[
+            "documents",
+            "metadatas",
+        ]
+    )
+
+    return _process_exact_search_results(stored_data, terms)
+
+
+def _process_exact_search_results(stored_data, terms):
     documents = (
         stored_data.get(
             "documents",
