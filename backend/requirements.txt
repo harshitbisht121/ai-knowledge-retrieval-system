@@ -17,7 +17,8 @@ python-multipart
 python-dotenv
 
 SQLAlchemy
-PyMySQL
+psycopg[binary]
+alembic
 
 bcrypt
 python-jose[cryptography]==3.5.0

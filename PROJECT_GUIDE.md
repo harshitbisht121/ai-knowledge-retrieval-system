@@ -3,15 +3,76 @@
 ## SECTION 1 — PROJECT OVERVIEW
 
 ### Project Objective
-The objective of this project is to provide an AI-powered Knowledge Retrieval Platform that allows users to upload documents (PDF, DOCX, TXT, CSV) and interactively query them using a Retrieval-Augmented Generation (RAG) approach. Milestone 2 extended the Milestone 1 RAG pipeline into a multi-agent query-resolution workflow using Query Understanding, Retrieval, and Response Generation agents coordinated by LangGraph. Milestone 3 extends that workflow with Clarification, Conversation Memory, browser-based Voice Input/Text-to-Speech integration, and Response Transparency in the conversational UI.
+
+The objective of this project is to provide an AI-powered Knowledge Retrieval Platform that allows users to upload documents (PDF, DOCX, TXT, CSV) and interactively query them using a Retrieval-Augmented Generation (RAG) approach. Milestone 2 extended the Milestone 1 RAG pipeline into a multi-agent query-resolution workflow using Query Understanding, Retrieval, and Response Generation agents coordinated by LangGraph. Milestone 3 extends that workflow with Clarification, Conversation Memory, browser-based Voice Input/Text-to-Speech integration, Response Transparency in the conversational UI, and authenticated user-specific workspaces. The current query layer also supports general-knowledge and conversational questions through a direct LLM route while preserving the existing knowledge-base RAG route.
 
 ### Problem Statement
+
 Organizations and individuals often struggle to quickly extract meaningful and relevant information from large repositories of unstructured documents. Traditional keyword-based search is limited and lacks semantic understanding, making it difficult to answer complex queries based on specific proprietary data.
 
 ### Why Retrieval-Augmented Generation (RAG) is used
+
 RAG bridges the gap between the internal knowledge base of a large language model and external proprietary data. By storing document chunks in a vector database and retrieving semantically matching chunks at query time, RAG provides grounded context for the AI, reducing hallucinations and ensuring responses are derived from uploaded documents.
 
+### Milestone 1 — Core RAG Platform
+
+Milestone 1 established the foundational Retrieval-Augmented Generation (RAG) infrastructure of the platform. It provides the document ingestion, text extraction, chunking, embedding, vector storage, and baseline semantic retrieval capabilities used by the later milestones.
+
+The Milestone 1 pipeline is:
+
+```text
+User Uploads Document
+        ↓
+Document Extraction
+        ↓
+Text Chunking
+        ↓
+SentenceTransformer Embeddings
+        ↓
+ChromaDB Vector Storage
+        ↓
+Semantic Retrieval
+        ↓
+Relevant Context
+        ↓
+Baseline LLM Response
+```
+
+### Milestone 1 Components
+
+- **Document Upload:** Supports PDF, DOCX, TXT, and CSV files.
+- **Document Extraction:** Extracts readable text from uploaded files using the appropriate document-processing libraries.
+- **Chunking:** Splits extracted documents into smaller text chunks for efficient retrieval.
+- **Embedding Generation:** Converts chunks into semantic vector representations using the `all-MiniLM-L6-v2` SentenceTransformer model.
+- **Vector Storage:** Stores document chunks and embeddings persistently in ChromaDB.
+- **Metadata Persistence:** Maintains document metadata and processing status using local JSON storage.
+- **Semantic Retrieval:** Retrieves the most semantically relevant document chunks for a user query.
+- **Baseline Querying:** Uses the retrieved context to generate answers grounded in the uploaded knowledge base.
+
+### Milestone 1 RAG Flow
+
+```text
+Document
+    ↓
+Extraction
+    ↓
+Chunking
+    ↓
+Embedding
+    ↓
+ChromaDB
+    ↓
+Semantic Search
+    ↓
+Relevant Chunks
+    ↓
+Answer Generation
+```
+
+Milestone 1 provides the core RAG infrastructure that is retained throughout the project. Milestone 2 extends this baseline by introducing Query Understanding, deterministic query routing, Retrieval Agent enhancements, reranking, confidence filtering, Response Generation, and LangGraph orchestration.
+
 ### Milestone 2 Multi-Agent Resolution
+
 Milestone 2 built the multi-agent resolution layer on top of the existing RAG infrastructure.
 
 The validated Milestone 2 path is:
@@ -34,9 +95,10 @@ Grounded Answer + Sources + Confidence
 Milestone 3 adds four integrated capabilities:
 
 1. **Clarification Agent** — handles ambiguous queries by generating targeted clarification questions and refining the query after the user responds.
-2. **Conversation Memory Agent** — stores conversation turns in MySQL and loads prior context using a `conversation_id`, allowing contextual follow-up queries such as `What about its ranking?`.
+2. **Conversation Memory Agent** — stores conversation turns in PostgreSQL and loads prior context using a `conversation_id`, allowing contextual follow-up queries such as `What about its ranking?`.
 3. **Voice Input and Text-to-Speech** — the browser performs speech recognition through the Web Speech API and uses browser speech synthesis for spoken responses. The recognized transcript follows the same `/query` workflow as typed text.
 4. **Response Transparency** — the frontend displays answer citations, source documents, relevance/confidence information, and retrieved context chunks through the chat UI and Context Inspector.
+5. **Authentication and User Isolation** — users can sign up and sign in through the FastAPI authentication API, receive JWT access tokens, restore authenticated sessions, and access only their own conversations.
 
 ### Milestone 3 Query Workflow
 The primary integrated workflow is:
@@ -80,15 +142,16 @@ For an ambiguous query that needs user clarification, the first request ends aft
 8. **Contextual Resolution:** Context-dependent follow-ups can be rewritten into standalone queries before the existing Query Understanding Agent processes them.
 9. **Query Understanding:** The Query Understanding Agent normalizes the query, extracts entities/keywords/exact terms, and classifies it.
 10. **Routing:** LangGraph uses deterministic routing based on the structured query-understanding result.
-11. **Clarification:** Ambiguous queries are routed to the Clarification Agent, which generates a targeted question or refines the query after receiving the user's clarification.
-12. **Retrieval:** The Retrieval Agent performs semantic search and optional exact search, merges candidates, reranks them, filters low-confidence candidates, and returns final context.
-13. **Response Generation:** The Response Generation Agent creates a grounded answer using retrieved context and adds source citations and a confidence indicator.
-14. **Conversation Persistence:** Completed user/assistant turns are stored in the MySQL-backed conversation memory layer.
-15. **Transparency:** The frontend displays the answer, citations, source references, relevance/confidence, and exact retrieved chunks.
-16. **Voice Output:** The browser can read the returned answer aloud using Speech Synthesis; citation markers are not required in the spoken version.
+11. **General LLM Route:** General-knowledge or conversational queries are routed directly to the shared Groq LLM without knowledge-base retrieval.
+12. **Clarification:** Ambiguous queries are routed to the Clarification Agent, which generates a targeted question or refines the query after receiving the user's clarification.
+13. **Retrieval:** Knowledge-base queries continue through the existing Retrieval Agent, which performs semantic search and optional exact search, merges candidates, reranks them, filters low-confidence candidates, and returns final context.
+14. **Response Generation:** Knowledge-base queries use the existing Response Generation Agent to create grounded answers with source citations and confidence. General LLM responses return without knowledge-base sources.
+15. **Conversation Persistence:** Completed user/assistant turns are stored in the PostgreSQL-backed conversation memory layer.
+16. **Transparency:** For retrieval-backed answers, the frontend displays citations, source references, relevance/confidence, and exact retrieved chunks.
+17. **Voice Output:** The browser can read the returned answer aloud using Speech Synthesis; citation markers are not required in the spoken version.
 
 ### Overall System Architecture
-The frontend remains a React SPA built with Vite. The backend is a FastAPI application. REST requests enter the API layer, and the `/query` endpoint delegates query orchestration to a LangGraph workflow. The agents remain separated by responsibility. Milestone 1 RAG modules continue to provide embeddings, ChromaDB access, extraction and chunking. Milestone 3 adds a MySQL-backed conversation layer and browser-native voice capabilities.
+The frontend remains a React SPA built with Vite. The backend is a FastAPI application. REST requests enter the API layer, and the `/query` endpoint delegates query orchestration to a LangGraph workflow. The agents remain separated by responsibility. Milestone 1 RAG modules continue to provide embeddings, ChromaDB access, extraction and chunking. Milestone 3 adds a PostgreSQL-backed conversation layer and browser-native voice capabilities.
 
 ---
 
@@ -102,7 +165,8 @@ The frontend remains a React SPA built with Vite. The backend is a FastAPI appli
 | Uvicorn | ASGI server |
 | Pydantic | Request and response validation |
 | SQLAlchemy | ORM/database session management for conversation memory |
-| PyMySQL | MySQL database driver |
+| Psycopg 3 | PostgreSQL database driver |
+| Alembic | Database schema migration and versioning |
 
 ### Frontend
 | Technology | Description |
@@ -132,9 +196,9 @@ The frontend remains a React SPA built with Vite. The backend is a FastAPI appli
 ### Database
 | Technology | Description |
 |---|---|
-| MySQL | Persistent conversation and message storage for Milestone 3 memory |
+| PostgreSQL | Persistent conversation and message storage for Milestone 3 memory |
 | SQLAlchemy | Database ORM/session layer |
-| PyMySQL | MySQL connectivity |
+| Psycopg 3 | PostgreSQL connectivity |
 | Local JSON | Lightweight document metadata and processing-state persistence |
 
 ### Vector Database
@@ -160,7 +224,7 @@ The frontend remains a React SPA built with Vite. The backend is a FastAPI appli
 |---|---|
 | Oxlint | Frontend linting |
 | npm | Frontend package management |
-| XAMPP | Local MySQL development environment |
+| XAMPP | Local PostgreSQL development environment |
 
 ---
 
@@ -170,29 +234,38 @@ The frontend remains a React SPA built with Vite. The backend is a FastAPI appli
 AI-Based Knowledge Retrieval Platform with Query Resolution System/
 │
 ├── backend/
+│   ├── alembic/
+│   │   ├── versions/
+│   │   │   └── 0f628c51b660_initial_schema.py
+│   │   ├── env.py
+│   │   ├── script.py.mako
+│   │   └── README
+│   ├── alembic.ini
 │   ├── app/
 │   │   ├── __init__.py
 │   │   ├── main.py                              # FastAPI application entry point
 │   │   │
 │   │   ├── api/                                 # HTTP/API routers
 │   │   │   ├── __init__.py
+│   │   │   ├── auth.py                          # Registration, login, session and logout endpoints
 │   │   │   ├── documents.py                     # Document management endpoints
 │   │   │   ├── health.py                        # Health check endpoint
 │   │   │   ├── query.py                         # Main M2/M3 /query endpoint
-│   │   │   ├── conversations.py                 # Conversation management endpoints
+│   │   │   ├── conversations.py                 # Authenticated conversation management endpoints
 │   │   │   └── upload.py                        # Upload and status endpoints
 │   │   │
-│   │   ├── core/                                # Application configuration and database setup
+│   │   ├── core/                                # Application configuration, auth, and database setup
 │   │   │   ├── __init__.py
 │   │   │   ├── config.py                        # Paths and application settings
 │   │   │   ├── llm.py                           # Centralized Groq LLM setup
-│   │   │   └── database.py                      # SQLAlchemy engine/session/Base
+│   │   │   ├── database.py                      # SQLAlchemy engine/session/Base
+│   │   │   └── auth.py                          # Password hashing and JWT helpers
 │   │   │
-│   │   ├── models/                              # API/database models
+│   │   ├── models/                              # API/data models
 │   │   │   ├── __init__.py
 │   │   │   ├── request_models.py                # Query + M3 request validation
 │   │   │   ├── response_models.py               # API response models
-│   │   │   └── conversation.py                  # Conversation database ORM model, if separated
+│   │   │   └── auth_models.py                   # Login/register/profile/token models
 │   │   │
 │   │   ├── rag/                                 # Milestone 1 RAG infrastructure
 │   │   │   ├── __init__.py
@@ -200,6 +273,9 @@ AI-Based Knowledge Retrieval Platform with Query Resolution System/
 │   │   │   ├── chunking.py                      # Text chunking
 │   │   │   ├── embedding.py                     # Embedding generation
 │   │   │   └── extractor.py                     # Document text extraction
+│   │   │
+│   │   ├── dependencies/                        # FastAPI dependency helpers
+│   │   │   └── auth.py                          # Bearer/JWT authenticated-user dependency
 │   │   │
 │   │   ├── services/                            # Backend business services
 │   │   │   ├── __init__.py
@@ -272,8 +348,7 @@ AI-Based Knowledge Retrieval Platform with Query Resolution System/
 │   ├── uploads/                                 # Local uploaded files (ignored)
 │   ├── .env                                     # Local secrets/config (ignored)
 │   ├── .env.example                             # Environment variable template
-│   ├── requirements.txt                         # Python dependencies
-│   └── create_memory_tables.py                  # Create conversation tables
+│   └── requirements.txt                         # Python dependencies
 │
 ├── frontend/
 │   ├── public/                                  # Static public assets
@@ -290,7 +365,10 @@ AI-Based Knowledge Retrieval Platform with Query Resolution System/
 │   │   │   └── speechtotext.jsx                 # Speech helper, if retained
 │   │   ├── hooks/
 │   │   │   └── useSpeechRecognition.js          # Web Speech API hook
+│   │   ├── context/
+│   │   │   └── Authcontext.jsx                  # Authentication/session context
 │   │   ├── pages/
+│   │   │   ├── AuthPage.jsx                     # Sign in / sign up UI
 │   │   │   ├── ChatPage.jsx                     # Chat + voice + transparency UI
 │   │   │   └── UploadPage.jsx                    # Document upload UI
 │   │   ├── services/
@@ -336,13 +414,15 @@ graph TD
     U([User]) --> FE[React Frontend]
     FE --> STT[Web Speech API]
     STT --> FE
-    FE --> API[FastAPI API]
-    API --> DB[(MySQL Conversation Memory)]
+    FE --> AUTH[JWT Authentication]
+    AUTH --> API[FastAPI API]
+    API --> DB[(PostgreSQL Conversation Memory)]
     API --> WF[LangGraph Workflow]
     WF --> MEM[Conversation Memory Agent]
     MEM --> DB
     WF --> QUA[Query Understanding Agent]
     QUA --> RT[Query Router]
+    RT --> GEN[General LLM Response]
     RT --> CL[Clarification Agent]
     CL --> QUA
     RT --> RA[Retrieval Agent]
@@ -375,11 +455,13 @@ The React frontend remains responsible for presentation and browser capabilities
 - `src/assets/`: Static media.
 
 ### Current Frontend Responsibilities
-- `ChatPage.jsx`: Sends user questions, maintains the current conversation ID, handles voice transcription, displays responses, clarification questions, citations, confidence and retrieved context.
+- `AuthPage.jsx`: Provides sign-in and account-creation forms and displays authentication errors/status.
+- `Authcontext.jsx`: Centralizes authenticated user state, JWT/session persistence, sign in, registration, session restoration and logout.
+- `ChatPage.jsx`: Sends user questions, maintains the current conversation ID, loads persisted conversations, handles voice transcription, displays responses, clarification questions, citations, confidence and retrieved context.
 - `useSpeechRecognition.js`: Uses browser Web Speech API for speech-to-text and returns transcript/listening/error state to `ChatPage`.
 - `ChatBubble.jsx`: Displays user/bot messages and source information.
 - `UploadPage.jsx`: Uploads documents and manages document status.
-- `FileUploader.jsx`: Handles multipart upload and progress.
+- `FileUploader.jsx`: Handles multipart upload and progress. Internal processing stages remain available to the workflow, but chunk, embedding, and vector counts are hidden from the user-facing upload UI.
 - `api.js`: Centralizes document, query, and conversation REST calls.
 
 ### Voice Input Responsibilities
@@ -405,7 +487,7 @@ The provided `useSpeechRecognition.js` hook checks for `window.SpeechRecognition
 Speech synthesis is performed in the browser. Backend voice helpers only prepare clean speech-ready text where applicable; they do not access the microphone or synthesize audio. Citation markers such as `[1]` can be removed from the speech version while the display answer retains citations.
 
 ### Conversation State
-`ChatPage.jsx` creates/retains a backend `conversation_id` and passes it to `api.sendChatMessage()` for subsequent messages in the same chat. Clearing the conversation starts a new backend conversation.
+`ChatPage.jsx` maintains the active `conversation_id`. Opening the chatbot loads the current authenticated user's saved conversations and can restore the most recent conversation. A new chat resets the frontend conversation state; the backend conversation is created when the first real user message is submitted. Subsequent messages use the same `conversation_id`.
 
 ### Clarification UI
 When `/query` returns:
@@ -474,7 +556,7 @@ Example:
 VITE_API_BASE_URL=http://127.0.0.1:8000
 ```
 
-The frontend must never contain `GROQ_API_KEY`, MySQL credentials, or other backend-only secrets.
+The frontend must never contain `GROQ_API_KEY`, PostgreSQL credentials, or other backend-only secrets.
 
 ---
 
@@ -494,6 +576,45 @@ The presentation layer. Routers validate HTTP requests and delegate work to serv
 - `llm.py`: Centralized shared LLM initialization from `backend/.env`.
 - `database.py`: SQLAlchemy engine, declarative base and database session dependency.
 
+### Authentication and User Isolation
+The authentication layer is implemented as a real backend-backed login/signup flow rather than a frontend-only mock.
+
+#### `app/core/auth.py`
+- Hashes passwords with bcrypt.
+- Verifies supplied passwords against stored password hashes.
+- Creates and decodes JWT access tokens.
+- Uses the authenticated user's database ID as the JWT subject.
+
+#### `app/dependencies/auth.py`
+- Reads the Bearer access token from the request.
+- Decodes and validates the JWT.
+- Loads the authenticated `User` from PostgreSQL.
+- Returns `401 Unauthorized` for missing/invalid/expired authentication.
+
+#### `app/api/auth.py`
+Provides:
+- `POST /auth/register` — create an account and issue a token.
+- `POST /auth/login` — authenticate an existing account and issue a token.
+- `GET /auth/me` — return the authenticated user's profile.
+- `POST /auth/logout` — complete the logout request; the frontend removes the stored token because JWT access tokens are stateless.
+
+#### Database ownership
+`User` is the parent entity for conversations. Every conversation stores a non-null `user_id` foreign key. Conversation endpoints filter by the authenticated user, so a user can list, read, save turns to, and delete only their own conversations. Attempts to access another user's conversation are rejected as not found/unauthorized by the ownership check.
+
+#### Frontend authentication
+`Authcontext.jsx` is the single authentication state provider. `AuthPage.jsx` uses the real backend `/auth/register` and `/auth/login` endpoints. `App.jsx` gates the workspace behind authentication, and `main.jsx` provides `AuthProvider`. The Sidebar exposes the authenticated user's profile and logout action below the AI Chatbot navigation.
+
+#### Authentication environment
+The backend `.env` contains JWT configuration alongside the existing Groq and PostgreSQL settings:
+
+```env
+JWT_SECRET_KEY=<long-random-secret>
+JWT_ALGORITHM=HS256
+JWT_ACCESS_TOKEN_EXPIRE_MINUTES=60
+```
+
+The JWT secret must never be committed to GitHub.
+
 ### `app/services/`
 - `document_service.py`: Document listing/deletion business logic.
 - `metadata_service.py`: JSON metadata and processing status.
@@ -507,7 +628,7 @@ Responsibilities:
 - Entity extraction.
 - Keyword extraction.
 - Exact-term extraction.
-- Query classification into factual, procedural, comparative, or ambiguous.
+- Query classification into factual, procedural, comparative, general, or ambiguous.
 - Structured `QueryUnderstandingResult` output.
 
 ### `app/agents/retrieval/`
@@ -547,7 +668,7 @@ Responsibilities:
 - Provide context to contextual follow-up resolution.
 - Isolate conversation persistence from the rest of the agent layer.
 
-The memory layer uses SQLAlchemy sessions backed by MySQL. `conversation_id` is the persistent identifier for a conversation.
+The memory layer uses SQLAlchemy sessions backed by PostgreSQL. `conversation_id` is the persistent identifier for a conversation.
 
 ### `app/voice/`
 The Voice folder is a module, not an AI agent. It therefore belongs directly under `app/`, not `app/agents/`.
@@ -626,6 +747,7 @@ Contains orchestration-only node functions:
 - `clarification_node()`
 - `retrieval_node()`
 - `response_generation_node()`
+- `general_response_node()`
 - `save_memory_node()`
 
 #### `query_router.py`
@@ -635,6 +757,7 @@ Contains deterministic route selection:
 factual       → retrieval
 procedural    → retrieval
 comparative   → retrieval
+general       → general LLM
 ambiguous     → clarification
 ```
 
@@ -664,12 +787,12 @@ sequenceDiagram
     participant LLM
     participant EmbeddingModel
     participant ChromaDB
-    participant MySQL
+    participant PostgreSQL
     OS->>FastAPI: Run `uvicorn app.main:app --reload`
     FastAPI->>LLM: Load shared Groq configuration
     FastAPI->>EmbeddingModel: Load embedding model when retrieval is initialized
     FastAPI->>ChromaDB: PersistentClient(path)
-    FastAPI->>MySQL: SQLAlchemy engine/session configuration
+    FastAPI->>PostgreSQL: SQLAlchemy engine/session configuration
     FastAPI-->>OS: Listening on port 8000
 ```
 
@@ -701,10 +824,10 @@ sequenceDiagram
 sequenceDiagram
     participant Frontend
     participant API
-    participant MySQL
+    participant PostgreSQL
     Frontend->>API: POST /conversations
-    API->>MySQL: Create Conversation
-    MySQL-->>API: conversation_id
+    API->>PostgreSQL: Create Conversation
+    PostgreSQL-->>API: conversation_id
     API-->>Frontend: conversation_id
 ```
 
@@ -720,32 +843,35 @@ sequenceDiagram
     participant Clarification
     participant RA as Retrieval
     participant RGA as Response Generation
-    participant MySQL
+    participant PostgreSQL
 
     User->>Frontend: Types or speaks query
     Frontend->>API: POST /query + conversation_id
     API->>Workflow: run_workflow(query, conversation_id, db)
     Workflow->>Memory: Load context
-    Memory->>MySQL: Read conversation history
-    MySQL-->>Memory: Previous turns
+    Memory->>PostgreSQL: Read conversation history
+    PostgreSQL-->>Memory: Previous turns
     Memory-->>Workflow: memory_context
     Workflow->>Workflow: Contextual query resolution when needed
     Workflow->>QUA: run(resolved query)
     QUA-->>Workflow: QueryUnderstandingResult
     Workflow->>Workflow: route_query()
 
-    alt Ambiguous query
+    alt General query
+        Workflow->>Workflow: Route to direct General LLM response
+        Workflow-->>API: General answer, no KB sources
+    else Ambiguous query
         Workflow->>Clarification: Generate clarification question
         Clarification-->>Workflow: clarification question
         Workflow-->>API: clarification_required=true
         API-->>Frontend: Clarification question
-    else Clear query
+    else Knowledge-base query
         Workflow->>RA: run(QueryUnderstandingResult, k)
         RA-->>Workflow: Ranked/filtered chunks
         Workflow->>RGA: generate_response(question, chunks)
         RGA-->>Workflow: LLMResponse
         Workflow->>Memory: Store completed turn
-        Memory->>MySQL: INSERT user + assistant messages
+        Memory->>PostgreSQL: INSERT user + assistant messages
         Workflow-->>API: Final workflow state
         API-->>Frontend: Answer + sources + confidence
     end
@@ -785,11 +911,11 @@ This preserves the existing Query Understanding Agent interface, which expects a
 3. `query.py` calls `run_workflow()` with the query, optional `conversation_id`, clarification fields, and database session.
 4. Memory context is loaded when a conversation ID exists.
 5. Query Understanding produces structured query information.
-6. `query_router.py` selects retrieval or clarification.
-7. Retrieval returns ranked context.
-8. Response Generation produces the grounded answer, citations and confidence.
+6. `query_router.py` selects general LLM, retrieval, or clarification.
+7. General queries go directly to the shared Groq LLM; knowledge-base queries return ranked context from the existing Retrieval Agent.
+8. Retrieval-backed queries use Response Generation for the grounded answer, citations and confidence.
 9. The completed turn is persisted when `conversation_id` exists.
-10. `query.py` builds the Response Transparency object from the existing retrieval result.
+10. `query.py` builds the Response Transparency object from the existing retrieval result; general responses have no knowledge-base transparency evidence.
 11. FastAPI returns the final JSON response.
 
 ### Voice query
@@ -857,12 +983,16 @@ The page sends the conversation ID through `api.sendChatMessage()` and handles b
 | Health | GET | `/` | None | Health check |
 | Documents | GET | `/documents` | None | List indexed documents |
 | Documents | DELETE | `/documents/{id}` | Path `document_id` | Delete indexed document |
+| Authentication | POST | `/auth/register` | Registration payload | Create account and issue JWT |
+| Authentication | POST | `/auth/login` | Login payload | Authenticate user and issue JWT |
+| Authentication | GET | `/auth/me` | Bearer token | Return authenticated user profile |
+| Authentication | POST | `/auth/logout` | Bearer token | Complete logout request |
 | Query | POST | `/query` | `QueryRequest` | Run M2/M3 workflow |
-| Conversations | POST | `/conversations` | Conversation creation data | Create a conversation and return `conversation_id` |
-| Conversations | GET | `/conversations` | None | List saved conversations |
-| Conversations | GET | `/conversations/{id}` | Path `conversation_id` | Get one conversation and messages |
-| Conversations | GET | `/conversations/{id}/context` | Path `conversation_id` | Get memory context |
-| Conversations | DELETE | `/conversations/{id}` | Path `conversation_id` | Delete a conversation |
+| Conversations | POST | `/conversations` | Conversation creation data | Create an authenticated user's conversation and return `conversation_id` |
+| Conversations | GET | `/conversations` | Bearer token | List the authenticated user's saved conversations |
+| Conversations | GET | `/conversations/{id}` | Path `conversation_id` + Bearer | Get one owned conversation and messages |
+| Conversations | GET | `/conversations/{id}/context` | Path `conversation_id` + Bearer | Get owned conversation memory context |
+| Conversations | DELETE | `/conversations/{id}` | Path `conversation_id` + Bearer | Delete an owned conversation |
 | Upload | POST | `/upload` | Multipart file | Upload document |
 | Upload | GET | `/upload/status/{id}` | Path `job_id` | Check upload status |
 
@@ -907,6 +1037,55 @@ This keeps:
 
 ---
 
+## SECTION 11A — GENERAL LLM QUERY HANDLING
+
+The integrated chatbot supports two distinct answer paths so that general questions do not fail merely because the knowledge base does not contain the requested fact.
+
+### Query Routing
+
+```text
+factual / procedural / comparative
+                ↓
+          Knowledge-base query
+                ↓
+             Existing RAG
+
+          general query
+                ↓
+          Shared Groq LLM
+
+         ambiguous query
+                ↓
+       Clarification Agent
+```
+
+### General Query Examples
+
+Queries such as:
+
+```text
+What is a calculator?
+What is a machine?
+What is artificial intelligence?
+What is the capital of Russia?
+Who is the Prime Minister of India?
+Hello
+How are you?
+```
+
+can be classified as `general` and answered directly by the LLM without calling the knowledge-base Retrieval Agent.
+
+### Knowledge-base Preservation
+A query that is intended to use uploaded project/company/document information continues through the existing retrieval path. The system does not use `no retrieval results -> general LLM` as a fallback, because that could cause an unsupported general answer to be presented as a knowledge-base answer.
+
+### General Response Characteristics
+- General responses do not fabricate document sources.
+- `response.sources` is empty for direct general answers.
+- Knowledge-base retrieval statistics are not presented as the basis of a general answer.
+- General answers can still be persisted in authenticated conversation memory.
+
+---
+
 ## SECTION 12 — RAG PIPELINE
 
 The underlying RAG infrastructure from Milestone 1 is retained:
@@ -948,7 +1127,7 @@ Milestone 3 does not replace this retrieval pipeline. Clarification and conversa
 ## SECTION 13 — CONVERSATION MEMORY
 
 ### Purpose
-Conversation Memory allows each user's conversation to be identified by a persistent `conversation_id` and stores user/assistant turns in MySQL.
+Conversation Memory allows each user's conversation to be identified by a persistent `conversation_id` and stores user/assistant turns in PostgreSQL.
 
 ### Database Flow
 
@@ -965,7 +1144,7 @@ Memory Agent
    ├── get_context()
    └── store_turn()
    ↓
-MySQL
+PostgreSQL
 ```
 
 ### Conversation Context
@@ -990,15 +1169,10 @@ User: What about its ranking?
 
 The contextual query-resolution step can turn the follow-up into a standalone query before Query Understanding.
 
-### MySQL Requirements
-MySQL must be running before using conversation endpoints or memory-enabled queries. XAMPP can be used to run MySQL locally.
+### PostgreSQL Requirements
+PostgreSQL must be running before using conversation endpoints or memory-enabled queries. XAMPP can be used to run PostgreSQL locally.
 
-Create the conversation tables with:
-
-```bash
-cd backend
-python create_memory_tables.py
-```
+Conversation tables are created automatically at application startup through SQLAlchemy model metadata. No separate table-creation script is required.
 
 ### Backward Compatibility
 A query without `conversation_id` remains usable as an M2-compatible single-query request. A query with `conversation_id` enables memory features.
@@ -1014,6 +1188,7 @@ The Milestone 3 deterministic router uses:
 factual       → retrieval
 procedural    → retrieval
 comparative   → retrieval
+general       → general LLM
 ambiguous     → clarification
 ```
 
@@ -1232,7 +1407,7 @@ The current integrated design does not require a standalone `/transparency` requ
 - `chroma_db/`: Persistent ChromaDB vector data.
 
 ### Conversation Storage
-Conversation data is stored in MySQL, with SQLAlchemy managing sessions and ORM persistence.
+Conversation data is stored in PostgreSQL, with SQLAlchemy managing sessions and ORM persistence.
 
 The vector database and conversation database have different responsibilities:
 
@@ -1240,7 +1415,7 @@ The vector database and conversation database have different responsibilities:
 ChromaDB
 → document chunks + embeddings + retrieval
 
-MySQL
+PostgreSQL
 → conversations + conversation messages
 ```
 
@@ -1251,23 +1426,52 @@ The Milestone 3 Memory Agent does not replace ChromaDB and does not store docume
 ## SECTION 18 — CONFIGURATION
 
 ### Backend Environment
+
 Create:
 
 ```text
 backend/.env
 ```
 
+The application and Alembic both use this same file. There is **no separate `.env` inside `backend/alembic/`**.
+
 Example:
 
 ```env
 GROQ_API_KEY=<your-key>
 GROQ_MODEL=<configured-model>
-DATABASE_URL=mysql+pymysql://<user>:<password>@localhost:<port>/<database>
+
+DATABASE_URL=postgresql+psycopg://postgres:<your-postgres-password>@localhost:5432/querynest
+
+JWT_SECRET_KEY=<long-random-secret>
+JWT_ALGORITHM=HS256
+JWT_ACCESS_TOKEN_EXPIRE_MINUTES=60
 ```
 
-Use the project's actual database configuration variables if `app/core/database.py` names them differently. Do not commit real credentials.
+### PostgreSQL configuration
+
+The current persistent database is PostgreSQL.
+
+```text
+Host: localhost
+Port: 5432
+Database: querynest
+Username: postgres
+```
+
+PostgreSQL stores:
+
+```text
+users
+conversations
+conversation_messages
+alembic_version
+```
+
+ChromaDB remains responsible for vector/document retrieval storage.
 
 ### Frontend Environment
+
 Create:
 
 ```text
@@ -1281,16 +1485,37 @@ VITE_API_BASE_URL=http://127.0.0.1:8000
 ```
 
 ### Environment Security
+
 Never commit:
+
 - `backend/.env`
 - `frontend/.env`
 - Groq API keys
-- MySQL passwords
+- PostgreSQL passwords
+- JWT secrets
 - other backend-only secrets
 
-Use `.env.example` files only for placeholder variable names/values.
+Use `.env.example` files only for safe placeholder configuration.
 
----
+### Database URL note
+
+The backend uses the SQLAlchemy PostgreSQL URL:
+
+```text
+postgresql+psycopg://USER:PASSWORD@HOST:PORT/DATABASE
+```
+
+If the PostgreSQL password contains URL-reserved characters such as `@`, `#`, `:`, `/`, or `?`, encode those characters in the URL.
+
+### Alembic configuration
+
+`backend/alembic/env.py` loads `backend/.env` and uses:
+
+```text
+DATABASE_URL
+```
+
+`backend/alembic.ini` does not store database credentials.
 
 ## SECTION 19 — MODELS
 
@@ -1379,6 +1604,184 @@ clarification_question
 A clean `speech_text` representation may also be prepared for browser speech synthesis.
 
 ---
+
+## SECTION 19A — POSTGRESQL DATABASE & ALEMBIC
+
+### Database architecture
+
+The persistent database architecture is:
+
+```text
+FastAPI
+    ↓
+SQLAlchemy
+    ↓
+Psycopg 3
+    ↓
+PostgreSQL
+```
+
+The current application tables are:
+
+```text
+users
+conversations
+conversation_messages
+```
+
+with the ownership relationships:
+
+```text
+users.id
+   ↓
+conversations.user_id
+
+conversations.id
+   ↓
+conversation_messages.conversation_id
+```
+
+### Why Alembic is used
+
+Alembic is the database schema migration tool for this project. It is the source of truth for schema changes after the initial baseline.
+
+FastAPI startup does not create or modify database tables.
+
+### Alembic project structure
+
+```text
+backend/
+├── alembic.ini
+└── alembic/
+    ├── env.py
+    ├── script.py.mako
+    ├── README
+    └── versions/
+        └── 0f628c51b660_initial_schema.py
+```
+
+### Initial migration
+
+The revision:
+
+```text
+0f628c51b660
+```
+
+is the initial schema migration and creates:
+
+```text
+users
+conversations
+conversation_messages
+```
+
+for a fresh database.
+
+The migration contains the schema definition only; it does **not** contain application seed data.
+
+The existing PostgreSQL development database was migrated from the historical PostgreSQL database and then stamped at this revision. Its existing application rows are therefore preserved without being re-created.
+
+### Fresh developer database
+
+For a new teammate:
+
+1. Install PostgreSQL and pgAdmin 4.
+2. Create an empty database named `querynest`.
+3. Create local `backend/.env`.
+4. Install Python dependencies.
+5. Run:
+
+```bash
+cd backend
+alembic upgrade head
+```
+
+6. Start FastAPI:
+
+```bash
+uvicorn app.main:app --reload
+```
+
+7. Start the React frontend.
+8. Register a new account.
+
+No manual SQL table creation is required.
+
+### Alembic commands
+
+Check the current revision:
+
+```bash
+alembic current
+```
+
+Show migration history:
+
+```bash
+alembic history
+```
+
+Check for model/schema differences:
+
+```bash
+alembic check
+```
+
+Create a new migration after changing SQLAlchemy models:
+
+```bash
+alembic revision --autogenerate -m "describe the change"
+```
+
+Apply all pending migrations:
+
+```bash
+alembic upgrade head
+```
+
+Move to a specific revision only when intentionally performing a controlled migration:
+
+```bash
+alembic upgrade <revision>
+```
+
+### Reviewing autogenerated migrations
+
+Never blindly run an autogenerated migration.
+
+After:
+
+```bash
+alembic revision --autogenerate -m "describe the change"
+```
+
+open the generated file in:
+
+```text
+backend/alembic/versions/
+```
+
+and review the `upgrade()` and `downgrade()` operations before applying them.
+
+### Database migration history
+
+The project previously used PostgreSQL for conversation persistence during earlier development. The application has since been migrated to PostgreSQL.
+
+The one-time historical PostgreSQL-to-PostgreSQL migration was performed by a maintainer. It transferred existing development data into PostgreSQL and corrected the `conversation_messages.id` sequence.
+
+That historical migration is **not part of normal teammate onboarding**. A fresh teammate database contains no application data.
+
+### Important database rules
+
+- Do not manually create application tables on a fresh developer database.
+- Do not commit `backend/.env`.
+- Do not put database passwords in `alembic.ini`.
+- Do not use `Base.metadata.create_all()` as the production schema-migration mechanism.
+- Keep the Alembic migration files under version control.
+- Each developer may use their own local PostgreSQL `querynest` database.
+- Application data is local to each database unless an intentional shared environment is configured.
+
 
 ## SECTION 20 — API DOCUMENTATION
 
@@ -1562,13 +1965,7 @@ What is the ranking process used by the Retrieval Agent?
 The refined query was classified as factual, routed to retrieval, answered with relevant PDF chunks, and returned with citations and confidence.
 
 ### Database Memory
-Conversation tables were created successfully with:
-
-```bash
-python create_memory_tables.py
-```
-
-Memory-enabled API queries were validated using the same conversation ID across multiple requests.
+Conversation tables are created and evolved through Alembic migrations. FastAPI startup does not create database tables. Memory-enabled API queries were validated using the same conversation ID across multiple requests.
 
 ### Frontend + Backend Integration
 Validated end-to-end through the React frontend:
@@ -1611,7 +2008,7 @@ Add the API wrapper to `frontend/src/services/api.js`.
 Keep microphone and browser speech synthesis logic in the frontend. Backend code should receive text transcripts rather than browser-specific audio/session objects.
 
 ### Database changes
-Update the database/model layer and provide a repeatable table/setup script when introducing persistent storage.
+Update the SQLAlchemy model layer and create an Alembic migration. Apply schema changes with `alembic upgrade head`; do not use application startup to create tables.
 
 ---
 
@@ -1635,46 +2032,107 @@ Update the database/model layer and provide a repeatable table/setup script when
 
 ## SECTION 27 — SETUP INSTRUCTIONS
 
-### Backend
+### Backend prerequisites
 
-1. Create the environment:
+Install:
 
-```bash
-python -m venv .venv
+```text
+Python 3
+PostgreSQL 18
+pgAdmin 4
 ```
 
-2. Activate it.
+Node.js/npm are required for the frontend.
+
+For Windows, PostgreSQL Server, pgAdmin 4, and Command Line Tools are recommended. XAMPP/PostgreSQL is not required by the current project.
+
+### Backend setup
+
+1. Create the Python environment:
 
 Windows:
 
 ```cmd
+cd backend
+python -m venv .venv
 .venv\Scripts\activate
 ```
 
 macOS/Linux:
 
 ```bash
+cd backend
+python3 -m venv .venv
 source .venv/bin/activate
 ```
 
-3. Install dependencies:
+2. Install dependencies:
 
 ```bash
-pip install -r backend/requirements.txt
+pip install -r requirements.txt
 ```
 
-4. Start MySQL through XAMPP (or another local MySQL installation) before using conversation memory.
+3. Create an empty PostgreSQL database in pgAdmin:
 
-5. Create `backend/.env` with the project's required Groq and MySQL settings.
+```text
+Database: querynest
+Owner: postgres
+Host: localhost
+Port: 5432
+```
 
-6. Create the memory tables:
+Do not manually create `users`, `conversations`, or `conversation_messages`.
+
+4. Create the local environment file:
+
+```text
+backend/.env
+```
+
+Example:
+
+```env
+GROQ_API_KEY=<your-key>
+GROQ_MODEL=<configured-model>
+
+DATABASE_URL=postgresql+psycopg://postgres:<your-postgres-password>@localhost:5432/querynest
+
+JWT_SECRET_KEY=<long-random-secret>
+JWT_ALGORITHM=HS256
+JWT_ACCESS_TOKEN_EXPIRE_MINUTES=60
+```
+
+5. Run the initial/future schema migrations:
 
 ```bash
-cd backend
-python create_memory_tables.py
+alembic upgrade head
 ```
 
-7. Start FastAPI:
+6. Verify the migration state:
+
+```bash
+alembic current
+```
+
+Expected on a newly provisioned database:
+
+```text
+0f628c51b660 (head)
+```
+
+7. Check that the models and database schema agree:
+
+```bash
+alembic check
+```
+
+Expected:
+
+```text
+No new upgrade operations detected.
+```
+
+8. Start FastAPI:
 
 ```bash
 uvicorn app.main:app --reload
@@ -1683,30 +2141,30 @@ uvicorn app.main:app --reload
 Backend:
 
 ```text
-http://localhost:8000
+http://127.0.0.1:8000
 ```
 
 Swagger:
 
 ```text
-http://localhost:8000/docs
+http://127.0.0.1:8000/docs
 ```
 
-### Frontend
+### Frontend setup
 
-Create:
+1. Create:
 
 ```text
 frontend/.env
 ```
 
-Example:
+2. Add:
 
 ```env
 VITE_API_BASE_URL=http://127.0.0.1:8000
 ```
 
-Install and start:
+3. Install and run:
 
 ```bash
 cd frontend
@@ -1720,45 +2178,189 @@ Frontend:
 http://localhost:5173
 ```
 
-### Browser Voice Requirements
-Use a browser/environment that supports the Web Speech API. Microphone permission must be granted. Voice recognition remains a browser capability; no microphone audio needs to be uploaded to FastAPI for the current architecture.
+### First-run database behavior
 
----
+A fresh teammate database has:
+
+```text
+users                    0 rows
+conversations            0 rows
+conversation_messages   0 rows
+```
+
+after `alembic upgrade head`.
+
+The teammate should then register a new user through the application. No application data from another developer is copied into the new database.
+
+### Application startup responsibility
+
+FastAPI startup does not create database tables. Alembic owns schema management.
+
+```text
+Developer changes SQLAlchemy model
+            ↓
+alembic revision --autogenerate
+            ↓
+Review migration
+            ↓
+alembic upgrade head
+            ↓
+PostgreSQL schema updated
+```
 
 ## SECTION 28 — RECOMMENDED END-TO-END TEST SEQUENCE
 
-1. Start MySQL.
-2. Start FastAPI.
-3. Open Swagger and verify `/conversations` and `/query` are available.
-4. Start the React frontend.
-5. Upload the project PDF through the frontend.
-6. Ask a known-good clear query:
+### Fresh PostgreSQL developer setup
+
+1. Start PostgreSQL.
+2. Confirm the local `querynest` database exists.
+3. Confirm `backend/.env` points to PostgreSQL:
+
+```env
+DATABASE_URL=postgresql+psycopg://postgres:<your-postgres-password>@localhost:5432/querynest
+```
+
+4. Run:
+
+```bash
+cd backend
+alembic upgrade head
+```
+
+5. Confirm:
+
+```bash
+alembic current
+```
+
+shows:
+
+```text
+0f628c51b660 (head)
+```
+
+6. Run:
+
+```bash
+alembic check
+```
+
+7. Start FastAPI:
+
+```bash
+uvicorn app.main:app --reload
+```
+
+8. Start the React frontend.
+9. Open the application and register a new account.
+10. Confirm sign in and session restoration.
+11. Upload the project PDF or another supported document.
+12. Wait for document processing to complete.
+13. Ask a knowledge-base question:
 
 ```text
 What does the Retrieval Agent do?
 ```
 
-7. Confirm answer, citations, confidence and source chunks.
-8. Ask the contextual follow-up:
+14. Confirm answer, citations, confidence and source chunks.
+15. Ask:
 
 ```text
 What about its ranking?
 ```
 
-9. Confirm the follow-up remains in the same conversation and resolves using prior context.
-10. Ask an ambiguous query such as:
+16. Confirm the follow-up remains in the same conversation and uses prior memory.
+17. Ask:
 
 ```text
 Tell me more about that.
 ```
 
-11. Confirm that a clarification question is displayed.
-12. Test microphone input and verify that the transcript appears in the chat input.
-13. Submit the voice transcript and verify it follows the same `/query` path.
-14. Verify conversation messages in the MySQL conversation tables.
-15. Use the Context Inspector to inspect a cited retrieved chunk.
+18. Confirm that a clarification question is displayed.
+19. Test microphone input and verify the browser transcript appears in the chat.
+20. Submit the voice transcript through `/query`.
+21. Use the Context Inspector to inspect a retrieved chunk.
+22. Ask a general question such as:
 
----
+```text
+What is a calculator?
+```
+
+23. Confirm the general question is handled by the direct LLM route without fabricated knowledge-base sources.
+24. Test a knowledge-base question and confirm Retrieval + Response Generation are used.
+25. Create two accounts and verify each account can see only its own conversations.
+26. Sign out and verify the protected workspace requires authentication.
+27. In pgAdmin, verify the PostgreSQL tables and application rows.
+
+### Database verification queries
+
+For a local PostgreSQL `querynest` database:
+
+```sql
+SELECT COUNT(*) FROM users;
+SELECT COUNT(*) FROM conversations;
+SELECT COUNT(*) FROM conversation_messages;
+```
+
+Check Alembic state:
+
+```sql
+SELECT * FROM public.alembic_version;
+```
+
+Check for broken foreign-key references:
+
+```sql
+SELECT COUNT(*) AS orphan_conversations
+FROM public.conversations c
+LEFT JOIN public.users u ON u.id = c.user_id
+WHERE u.id IS NULL;
+```
+
+Expected:
+
+```text
+0
+```
+
+Check for orphaned messages:
+
+```sql
+SELECT COUNT(*) AS orphan_messages
+FROM public.conversation_messages m
+LEFT JOIN public.conversations c
+    ON c.id = m.conversation_id
+WHERE c.id IS NULL;
+```
+
+Expected:
+
+```text
+0
+```
+
+### Team onboarding verification
+
+A new teammate should be able to complete the project setup with:
+
+```bash
+cd backend
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+alembic upgrade head
+uvicorn app.main:app --reload
+```
+
+and a separate frontend terminal:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+No manual SQL table creation is part of the onboarding procedure.
 
 ## SECTION 29 — CURRENT MILESTONE STATUS
 
@@ -1787,7 +2389,7 @@ Tell me more about that.
 - Clarification Agent and conditional clarification routing.
 - Clarification question generation.
 - Clarification-based query refinement path.
-- MySQL-backed Conversation Memory Agent.
+- PostgreSQL-backed Conversation Memory Agent.
 - Persistent `conversation_id`.
 - Loading conversation context.
 - Context-aware follow-up query resolution.
@@ -1798,10 +2400,16 @@ Tell me more about that.
 - Response transparency through source citations, relevance evidence, transparency confidence, and Context Inspector.
 - Dedicated `app/transparency/` service integrated into `/query` without replacing the existing M3 response confidence.
 - Frontend handling of clarification responses and conversation IDs.
+- Backend JWT authentication with bcrypt password hashing.
+- Sign up, sign in, `/auth/me`, and logout flow.
+- Authenticated workspace gating in the React app.
+- User-specific conversation ownership and isolation.
+- General-knowledge/conversational queries routed directly to the shared LLM.
+- Knowledge-base queries remaining on the existing RAG/retrieval path.
+- Removal of chunk/embedding/vector implementation counts from the user-facing upload UI while retaining backend processing.
 
 ### Not part of the currently validated core flow
 The following remain future/optional enhancements unless separately integrated and tested:
-- user authentication and account isolation
 - advanced conversation search/summarization
 - learned retrieval rerankers
 - automated analytics/knowledge-gap dashboards
@@ -1813,7 +2421,7 @@ The following remain future/optional enhancements unless separately integrated a
 ## SECTION 30 — PROJECT SUMMARY
 
 ### Architecture
-The platform uses a decoupled React + FastAPI architecture with a LangGraph orchestration layer and persistent MySQL conversation memory.
+The platform uses a decoupled React + FastAPI architecture with a LangGraph orchestration layer and persistent PostgreSQL conversation memory.
 
 ### Backend
 The backend separates:
@@ -1825,13 +2433,15 @@ LangGraph orchestration
     ↓
 Agents + Memory
     ↓
-RAG infrastructure / MySQL
+RAG infrastructure / PostgreSQL
 ```
 
 ### Milestone 3
 The primary validated conversation flow is:
 
 ```text
+Authentication
+   ↓
 Memory
    ↓
 Contextual Query Resolution
@@ -1839,10 +2449,11 @@ Contextual Query Resolution
 Query Understanding
    ↓
 Query Routing
+   ├── General LLM
+   ├── Clarification
+   └── Existing RAG Retrieval
    ↓
-Clarification OR Retrieval
-   ↓
-Response Generation
+Response
    ↓
 Save Memory
 ```
@@ -1869,10 +2480,58 @@ The system retains the Milestone 1 semantic/ChromaDB infrastructure while adding
 The system generates grounded answers from retrieved context and exposes source citations and confidence.
 
 ### Conversation Memory
-Conversation state is keyed by `conversation_id` and persisted in MySQL. Memory context can be used to resolve follow-up references without requiring the user to restate the earlier subject.
+Conversation state is keyed by `conversation_id` and persisted in PostgreSQL. Memory context can be used to resolve follow-up references without requiring the user to restate the earlier subject.
 
 ### Frontend Integration
 The validated demo combines document ingestion, the M2 multi-agent workflow, M3 clarification and memory, browser voice interaction, and response transparency through the FastAPI REST API.
 
 ### Maintainability
 Agent responsibilities, orchestration, API concerns, database concerns, voice module responsibilities, frontend responsibilities and RAG infrastructure remain separated, allowing each layer to be developed and tested independently.
+
+
+---
+
+## SECTION 31 — POSTGRESQL TEAM ONBOARDING SUMMARY
+
+For a new developer, the required database process is:
+
+```text
+Install PostgreSQL
+      ↓
+Create empty querynest database
+      ↓
+Create backend/.env
+      ↓
+pip install -r requirements.txt
+      ↓
+alembic upgrade head
+      ↓
+Run FastAPI
+      ↓
+Run React
+      ↓
+Register a new user
+```
+
+The developer does **not** need:
+
+```text
+❌ XAMPP
+❌ MySQL/XAMPP
+❌ PyMySQL
+❌ manual application table creation
+❌ another Alembic .env file
+❌ another developer's application data
+```
+
+The developer does need:
+
+```text
+✅ PostgreSQL
+✅ pgAdmin 4 (recommended)
+✅ Psycopg 3
+✅ Alembic
+✅ local backend/.env
+```
+
+The repository should contain the Alembic configuration and migration files, while real environment files remain ignored by Git.
