@@ -292,3 +292,23 @@
     right: 0;
   }
 }
+
+/* ================================================================
+   ChatPage responsive layout
+   ================================================================ */
+.chat-page-layout { min-width: 0; }
+.chat-page-main-panel { min-width: 0; }
+.context-inspector-panel { min-width: 0; }
+@media (max-width: 900px) {
+  .chat-page-layout { flex-direction: column; overflow-y: auto !important; overflow-x: hidden !important; }
+  .chat-page-main-panel { width: 100% !important; height: 65vh !important; min-height: 420px; flex: 0 0 65vh !important; border-right: none !important; border-bottom: 1px solid var(--border-color); }
+  .context-inspector-panel { width: 100% !important; height: 35vh !important; min-height: 260px; flex: 0 0 35vh !important; }
+}
+@media (max-width: 600px) {
+  .chat-page-main-panel { height: 68vh !important; flex-basis: 68vh !important; min-height: 430px; }
+  .context-inspector-panel { height: 32vh !important; flex-basis: 32vh !important; min-height: 250px; }
+}
+@media (max-width: 430px) {
+  .chat-page-main-panel { height: 70vh !important; flex-basis: 70vh !important; min-height: 420px; }
+  .context-inspector-panel { height: 30vh !important; flex-basis: 30vh !important; min-height: 230px; }
+}

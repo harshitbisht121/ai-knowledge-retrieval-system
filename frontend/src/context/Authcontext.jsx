@@ -198,32 +198,24 @@ export const AuthProvider = ({
     password,
     rememberMe = true,
   ) => {
-    setLoading(true);
+    const data = await api.loginUser(
+      email.trim(),
+      password,
+    );
 
-    try {
-      const data =
-        await api.loginUser(
-          email.trim(),
-          password,
-        );
-
-      if (!data?.token || !data?.user) {
-        throw new Error(
-          'Authentication response is incomplete.',
-        );
-      }
-
-      saveAuthSession(
-        data.token,
-        data.user,
-        rememberMe,
+    if (!data?.token || !data?.user) {
+      throw new Error(
+        'Authentication response is incomplete.',
       );
-
-      return data;
-
-    } finally {
-      setLoading(false);
     }
+
+    saveAuthSession(
+      data.token,
+      data.user,
+      rememberMe,
+    );
+
+    return data;
   };
 
 

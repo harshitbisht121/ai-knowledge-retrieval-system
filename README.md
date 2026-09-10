@@ -1,6 +1,6 @@
 # AI-Based Knowledge Retrieval Platform with Query Resolution System
 
-An AI-powered Retrieval-Augmented Generation (RAG) platform that enables users to upload knowledge-base documents and query them using natural language. The project combines a multi-agent LangGraph workflow with persistent PostgreSQL conversation memory, clarification handling, browser-based voice input/output, response transparency, authenticated user workspaces, and direct LLM handling for general-knowledge/conversational questions.
+An AI-powered Retrieval-Augmented Generation (RAG) platform that enables users to upload knowledge-base documents and query them using natural language. The project combines a multi-agent LangGraph workflow with persistent PostgreSQL conversation memory, clarification handling, browser-based voice input/output, response transparency, authenticated user workspaces, and direct LLM handling for general-knowledge/conversational questions. Milestone 4 adds query analytics, knowledge-gap detection, authenticated user-specific knowledge bases, user-scoped ChromaDB retrieval, and dedicated Analytics and Knowledge Gap dashboards.
 
 > **Detailed Documentation:** See **`PROJECT_GUIDE.md`** for the complete architecture, workflow diagrams, backend/frontend design, API documentation, Milestone 1, Milestone 2 and Milestone 3 implementation details, testing flow, and development guidelines.
 
@@ -27,6 +27,12 @@ An AI-powered Retrieval-Augmented Generation (RAG) platform that enables users t
 - 👤 Per-user conversation ownership and isolation
 - 🌐 General-knowledge and conversational queries answered directly by the LLM
 - 🧩 User-facing upload UI hides internal chunk/embedding/vector counts while processing continues normally
+- 📊 Query Analytics Dashboard with real backend query totals, answer rate, confidence, response time and query-type distribution
+- ⚠️ Knowledge Gap Detection with backend-detected unanswered, zero-retrieval and low-confidence retrieval records
+- 🔐 User-specific Knowledge Base stored with authenticated `user_id` ownership and ChromaDB user-scoped retrieval
+- 🗂️ User-specific knowledge-base upload/list/read/delete/search APIs
+- 📈 Background processing status for private knowledge-base documents
+- 🧭 History & Statistics view for recent query/conversation activity
 
 ## Technology Stack
 
@@ -91,7 +97,18 @@ AI-Based Knowledge Retrieval Platform with Query Resolution System/
 │   │   │   ├── health.py
 │   │   │   ├── query.py
 │   │   │   ├── conversations.py
+│   │   │   ├── knowledge_base.py
 │   │   │   └── upload.py
+│   │   ├── analytics/
+│   │   │   ├── models.py
+│   │   │   ├── schemas.py
+│   │   │   ├── service.py
+│   │   │   └── router.py
+│   │   ├── knowledge_gaps/
+│   │   │   ├── models.py
+│   │   │   ├── schemas.py
+│   │   │   ├── service.py
+│   │   │   └── router.py
 │   │   ├── core/
 │   │   │   ├── config.py
 │   │   │   ├── llm.py
@@ -100,7 +117,8 @@ AI-Based Knowledge Retrieval Platform with Query Resolution System/
 │   │   ├── models/
 │   │   │   ├── request_models.py
 │   │   │   ├── response_models.py
-│   │   │   └── auth_models.py
+│   │   │   ├── auth_models.py
+│   │   │   └── knowledge_base_schemas.py
 │   │   ├── rag/
 │   │   │   ├── chromadb_service.py
 │   │   │   ├── chunking.py
@@ -110,6 +128,7 @@ AI-Based Knowledge Retrieval Platform with Query Resolution System/
 │   │   │   └── auth.py
 │   │   ├── services/
 │   │   │   ├── document_service.py
+│   │   │   ├── knowledge_base_service.py
 │   │   │   ├── metadata_service.py
 │   │   │   ├── query_service.py
 │   │   │   └── upload_service.py
@@ -160,9 +179,15 @@ AI-Based Knowledge Retrieval Platform with Query Resolution System/
 │   │   ├── pages/
 │   │   │   ├── AuthPage.jsx
 │   │   │   ├── ChatPage.jsx
-│   │   │   └── UploadPage.jsx
+│   │   │   ├── UploadPage.jsx
+│   │   │   ├── HistoryPage.jsx
+│   │   │   ├── HistoryPage.css
+│   │   │   ├── AnalyticsPage.jsx
+│   │   │   ├── KnowledgeGapPage.jsx
+│   │   │   └── Milestone4.css
 │   │   ├── services/
-│   │   │   └── api.js
+│   │   │   ├── api.js
+│   │   │   └── analytics.js
 │   │   ├── App.css
 │   │   ├── App.jsx
 │   │   ├── index.css
@@ -825,6 +850,248 @@ The backend receives the equivalent of:
 - TXT
 - CSV
 
+
+## Milestone 4 — Query Analytics, Knowledge Gap Detection & User-Specific Knowledge Base
+
+Milestone 4 builds on the existing M1–M3 implementation rather than replacing it.
+
+The internship specification requires:
+- tracking unanswered and low-confidence queries and common query themes
+- knowledge-gap detection
+- end-to-end testing across at least three distinct knowledge-base domains
+- optimization of retrieval, prompts, routing and voice reliability
+- documentation, project report and final demonstration. fileciteturn27file2L155-L165
+
+### M4 Backend
+
+#### Query Analytics
+
+Every processed authenticated query can produce a `QueryAnalytics` record containing:
+
+```text
+user_id
+conversation_id
+query_text
+query_type
+response_status
+confidence_score
+response_time
+created_at
+```
+
+The `/query` endpoint records this telemetry after workflow execution. Analytics persistence is isolated with transaction rollback so a telemetry failure does not break the core M3 query response.
+
+Available endpoints:
+
+```text
+POST /analytics/log
+GET  /analytics/overview
+GET  /analytics/query-types
+```
+
+The overview returns:
+
+```text
+total_queries
+answered_queries
+unanswered_queries
+average_confidence
+average_response_time
+```
+
+Query types are aggregated from actual stored analytics records.
+
+#### Knowledge Gap Detection
+
+Knowledge gaps are detected for retrieval queries when the implemented rules identify conditions such as:
+
+```text
+unanswered response
+zero retrieved chunks
+low retrieval/response confidence
+```
+
+General LLM queries are deliberately excluded from knowledge-gap creation because they are an explicit M3 route and do not represent missing KB coverage.
+
+Available endpoints:
+
+```text
+GET /knowledge-gaps
+GET /knowledge-gaps/top
+GET /knowledge-gaps/statistics
+```
+
+The current implementation does not require a separate gap-resolution API.
+
+#### User-Specific Knowledge Base
+
+M4 introduces:
+
+```text
+knowledge_base_documents
+```
+
+with ownership through `user_id`.
+
+A document upload follows:
+
+```text
+POST /knowledge-base/documents
+        ↓
+PostgreSQL document record
+        ↓
+background extraction
+        ↓
+chunking
+        ↓
+SentenceTransformer embeddings
+        ↓
+ChromaDB vectors
+        ↓
+metadata includes user_id
+        ↓
+status = completed / failed
+```
+
+Available endpoints:
+
+```text
+POST   /knowledge-base/documents
+GET    /knowledge-base/documents
+GET    /knowledge-base/documents/{document_id}
+DELETE /knowledge-base/documents/{document_id}
+POST   /knowledge-base/search
+```
+
+Every document-management operation is restricted to the authenticated user's ownership.
+
+### User-Scoped Retrieval
+
+The existing Retrieval Agent remains the RAG engine. M4 passes `user_id` from `/query` through workflow state to semantic/exact retrieval so ChromaDB can filter on:
+
+```text
+user_id == authenticated user
+```
+
+This prevents one user's private uploaded vectors from being returned to another user's query.
+
+### M4 Frontend
+
+The integrated frontend adds:
+
+```text
+src/pages/AnalyticsPage.jsx
+src/pages/KnowledgeGapPage.jsx
+src/pages/HistoryPage.jsx
+src/pages/HistoryPage.css
+src/pages/Milestone4.css
+src/services/analytics.js
+```
+
+The authenticated workspace navigation now includes:
+
+```text
+Upload Documents
+AI Chatbot
+History & Statistics
+Analytics
+Knowledge Gaps
+```
+
+The Analytics dashboard is connected to the actual backend endpoints and does not use the teammate's earlier synthetic local analytics dataset.
+
+The Query Type Distribution UI displays values in the form:
+
+```text
+17 queries · 58.6%
+6 queries · 20.7%
+3 queries · 10.3%
+```
+
+### M4 Runtime Validation
+
+The following runtime sequence validates the integration:
+
+```text
+Login
+   ↓
+Upload user-specific document
+   ↓
+Wait for INDEXED
+   ↓
+Ask a question about the document
+   ↓
+Confirm answer + source
+   ↓
+Open Analytics
+   ↓
+Run one more query
+   ↓
+Refresh Analytics
+   ↓
+Total query count increases
+   ↓
+Open Knowledge Gaps
+   ↓
+Verify backend-detected gap records
+```
+
+A separate two-user isolation test should verify:
+
+```text
+User A uploads document
+User A can retrieve it
+User B cannot retrieve it
+```
+
+### M4 Database Migrations
+
+The applied migration chain is:
+
+```text
+0f628c51b660
+      ↓
+7c91f9e3a2b4_milestone4_analytics_and_knowledge_gaps
+      ↓
+5a7a6c2b7c8f_add_user_specific_knowledge_base_
+```
+
+Run:
+
+```bash
+alembic upgrade head
+```
+
+on a fresh PostgreSQL database.
+
+The M4 schema adds:
+
+```text
+query_analytics
+knowledge_gaps
+knowledge_base_documents
+```
+
+while preserving the existing M3 tables.
+
+### M4 Requirements Status
+
+```text
+Query analytics logging                ✅ implemented
+Unanswered tracking                   ✅ implemented
+Low-confidence tracking               ✅ implemented
+Knowledge-gap detection               ✅ implemented
+Analytics dashboard                   ✅ integrated
+Knowledge-gap dashboard               ✅ integrated
+User-specific KB metadata             ✅ implemented
+User-scoped ChromaDB retrieval        ✅ implemented
+Three-domain E2E test                  ⚠ requires recorded test evidence
+Retrieval/prompt/routing optimization  ⚠ requires recorded evaluation evidence
+Voice reliability testing              ⚠ requires recorded evaluation evidence
+Final documentation/demo              ✅ implementation documented; demo evidence remains delivery work
+```
+
+
 ## Milestone 3 Validation
 
 The current Milestone 3 implementation has been validated with:
@@ -876,6 +1143,38 @@ Verify that the intended knowledge-base document is uploaded and indexed into th
 ### Voice input does not start
 Check browser Web Speech API support and microphone permissions. Voice recognition is performed in the browser, not by FastAPI.
 
+
+### Analytics page shows unsupported/mock data
+Verify that `frontend/src/services/analytics.js` calls the real endpoints:
+
+```text
+/analytics/overview
+/analytics/query-types
+```
+
+Do not restore the earlier local mock analytics fallback.
+
+### Knowledge Gaps page shows unsupported/mock values
+Verify that the frontend is using:
+
+```text
+/knowledge-gaps
+/knowledge-gaps/top
+/knowledge-gaps/statistics
+```
+
+The current backend does not return the teammate's older `summary/topics/insights` mock contract.
+
+### User-specific document is visible to the wrong account
+Verify that:
+1. document rows are filtered by `user_id`
+2. ChromaDB metadata contains `user_id`
+3. semantic and exact retrieval use the user-scoped search helpers
+4. `/query` passes the authenticated user ID into workflow state
+
+### User-specific document is uploaded but not retrieved
+Verify that the document status is `completed`/`INDEXED` and that the ChromaDB vectors were created with the correct `user_id`.
+
 ## Security
 
 Authentication and conversation ownership are enforced in the backend. Passwords are stored as bcrypt hashes, JWT access tokens are validated server-side, and conversations are filtered by the authenticated user ID.
@@ -900,4 +1199,5 @@ Use `.env.example` files for safe placeholder configuration only.
 
 For complete technical documentation, architecture diagrams, implementation details, API flow, RAG pipeline, Milestone 3 workflow, conversation memory, clarification, voice integration, response transparency, testing procedures, and development guidelines, refer to:
 
-- **PROJECT_GUIDE.md**
+- **PROJECT_GUIDE.md** — complete architecture, M1–M4 implementation and validation guidance.
+- **README.md** — setup, API, milestone and troubleshooting summary.

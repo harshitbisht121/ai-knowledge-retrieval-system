@@ -4,7 +4,7 @@
 
 ### Project Objective
 
-The objective of this project is to provide an AI-powered Knowledge Retrieval Platform that allows users to upload documents (PDF, DOCX, TXT, CSV) and interactively query them using a Retrieval-Augmented Generation (RAG) approach. Milestone 2 extended the Milestone 1 RAG pipeline into a multi-agent query-resolution workflow using Query Understanding, Retrieval, and Response Generation agents coordinated by LangGraph. Milestone 3 extends that workflow with Clarification, Conversation Memory, browser-based Voice Input/Text-to-Speech integration, Response Transparency in the conversational UI, and authenticated user-specific workspaces. The current query layer also supports general-knowledge and conversational questions through a direct LLM route while preserving the existing knowledge-base RAG route.
+The objective of this project is to provide an AI-powered Knowledge Retrieval Platform that allows users to upload documents (PDF, DOCX, TXT, CSV) and interactively query them using a Retrieval-Augmented Generation (RAG) approach. Milestone 2 extended the Milestone 1 RAG pipeline into a multi-agent query-resolution workflow using Query Understanding, Retrieval, and Response Generation agents coordinated by LangGraph. Milestone 3 extends that workflow with Clarification, Conversation Memory, browser-based Voice Input/Text-to-Speech integration, Response Transparency in the conversational UI, and authenticated user-specific workspaces. The current query layer also supports general-knowledge and conversational questions through a direct LLM route while preserving the existing knowledge-base RAG route. Milestone 4 adds query-level analytics, knowledge-gap detection, a database-backed user-specific knowledge base, user-scoped ChromaDB retrieval, and dedicated frontend dashboards for Analytics and Knowledge Gaps while preserving the M1–M3 workflow.
 
 ### Problem Statement
 
@@ -196,10 +196,10 @@ The frontend remains a React SPA built with Vite. The backend is a FastAPI appli
 ### Database
 | Technology | Description |
 |---|---|
-| PostgreSQL | Persistent conversation and message storage for Milestone 3 memory |
+| PostgreSQL | Persistent users, conversations/messages, query analytics, and user-specific knowledge-base document metadata |
 | SQLAlchemy | Database ORM/session layer |
 | Psycopg 3 | PostgreSQL connectivity |
-| Local JSON | Lightweight document metadata and processing-state persistence |
+| Local JSON | Retained for the original M1 document metadata/status flow; M4 user-specific KB document records are persisted in PostgreSQL |
 
 ### Vector Database
 | Technology | Description |
@@ -250,22 +250,26 @@ AI-Based Knowledge Retrieval Platform with Query Resolution System/
 │   │   │   ├── auth.py                          # Registration, login, session and logout endpoints
 │   │   │   ├── documents.py                     # Document management endpoints
 │   │   │   ├── health.py                        # Health check endpoint
-│   │   │   ├── query.py                         # Main M2/M3 /query endpoint
+│   │   │   ├── query.py                         # Main M2/M3/M4 /query endpoint + telemetry logging
 │   │   │   ├── conversations.py                 # Authenticated conversation management endpoints
-│   │   │   └── upload.py                        # Upload and status endpoints
+│   │   │   ├── upload.py                        # Legacy/original upload and status endpoints
+│   │   │   ├── knowledge_base.py                # User-specific knowledge-base document APIs
+│   │   │   ├── analytics.py                     # M4 analytics router (where applicable)
+│   │   │   └── knowledge_gaps.py                # M4 knowledge-gap router (where applicable)
 │   │   │
 │   │   ├── core/                                # Application configuration, auth, and database setup
 │   │   │   ├── __init__.py
 │   │   │   ├── config.py                        # Paths and application settings
 │   │   │   ├── llm.py                           # Centralized Groq LLM setup
-│   │   │   ├── database.py                      # SQLAlchemy engine/session/Base
+│   │   │   ├── database.py                      # SQLAlchemy engine/session/Base + model registration
 │   │   │   └── auth.py                          # Password hashing and JWT helpers
 │   │   │
 │   │   ├── models/                              # API/data models
 │   │   │   ├── __init__.py
-│   │   │   ├── request_models.py                # Query + M3 request validation
+│   │   │   ├── request_models.py                # Query + M3/M4 request validation
 │   │   │   ├── response_models.py               # API response models
-│   │   │   └── auth_models.py                   # Login/register/profile/token models
+│   │   │   ├── auth_models.py                   # Login/register/profile/token models
+│   │   │   └── knowledge_base_schemas.py        # M4 knowledge-base API schemas
 │   │   │
 │   │   ├── rag/                                 # Milestone 1 RAG infrastructure
 │   │   │   ├── __init__.py
@@ -280,9 +284,10 @@ AI-Based Knowledge Retrieval Platform with Query Resolution System/
 │   │   ├── services/                            # Backend business services
 │   │   │   ├── __init__.py
 │   │   │   ├── document_service.py              # Document management logic
-│   │   │   ├── metadata_service.py              # JSON metadata/status persistence
+│   │   │   ├── knowledge_base_service.py        # M4 user-specific KB lifecycle and processing
+│   │   │   ├── metadata_service.py              # JSON metadata/status persistence retained for M1 flow
 │   │   │   ├── query_service.py                 # Milestone 1 baseline retained
-│   │   │   └── upload_service.py                # Upload processing pipeline
+│   │   │   └── upload_service.py                # Upload validation/processing pipeline
 │   │   │
 │   │   ├── agents/                              # AI agents
 │   │   │   ├── __init__.py
@@ -329,6 +334,19 @@ AI-Based Knowledge Retrieval Platform with Query Resolution System/
 │   │   │   ├── __init__.py
 │   │   │   ├── schemas.py                       # Transparency response schemas
 │   │   │   └── service.py                       # Transparency/evidence builder
+│   │   ├── analytics/                           # Milestone 4 Query Analytics
+│   │   │   ├── __init__.py
+│   │   │   ├── models.py                         # QueryAnalytics SQLAlchemy model
+│   │   │   ├── schemas.py                        # Analytics request/response schemas
+│   │   │   ├── service.py                        # Query logging and aggregate statistics
+│   │   │   └── router.py                         # /analytics endpoints
+│   │   │
+│   │   ├── knowledge_gaps/                       # Milestone 4 Knowledge Gap Detection
+│   │   │   ├── __init__.py
+│   │   │   ├── models.py                         # KnowledgeGap SQLAlchemy model
+│   │   │   ├── schemas.py                        # Gap schemas
+│   │   │   ├── service.py                        # Gap detection and aggregation
+│   │   │   └── router.py                         # /knowledge-gaps endpoints
 │   │   │
 │   │   ├── test/                                 # Application-level tests
 │   │   │   └── test_memory.py                    # Conversation memory integration test
@@ -736,6 +754,7 @@ Defines the shared LangGraph `WorkflowState`, including:
 - `clarification_answer`
 - `original_query`
 - `refined_query`
+- `user_id` for authenticated user-scoped retrieval
 - internal database session (`_db`)
 
 #### `nodes.py`
@@ -771,6 +790,7 @@ Builds and compiles the LangGraph workflow and exposes `run_workflow()` with sup
 - `clarification_answer`
 - `clarification_question`
 - `original_query`
+- authenticated `user_id`
 - SQLAlchemy `db` session
 
 The workflow preserves the existing Milestone 2 retrieval and response-generation path and adds memory/clarification branches around it.
@@ -987,7 +1007,7 @@ The page sends the conversation ID through `api.sendChatMessage()` and handles b
 | Authentication | POST | `/auth/login` | Login payload | Authenticate user and issue JWT |
 | Authentication | GET | `/auth/me` | Bearer token | Return authenticated user profile |
 | Authentication | POST | `/auth/logout` | Bearer token | Complete logout request |
-| Query | POST | `/query` | `QueryRequest` | Run M2/M3 workflow |
+| Query | POST | `/query` | `QueryRequest` | Run the M2/M3 workflow and record M4 analytics/gap telemetry after execution |
 | Conversations | POST | `/conversations` | Conversation creation data | Create an authenticated user's conversation and return `conversation_id` |
 | Conversations | GET | `/conversations` | Bearer token | List the authenticated user's saved conversations |
 | Conversations | GET | `/conversations/{id}` | Path `conversation_id` + Bearer | Get one owned conversation and messages |
@@ -995,6 +1015,17 @@ The page sends the conversation ID through `api.sendChatMessage()` and handles b
 | Conversations | DELETE | `/conversations/{id}` | Path `conversation_id` + Bearer | Delete an owned conversation |
 | Upload | POST | `/upload` | Multipart file | Upload document |
 | Upload | GET | `/upload/status/{id}` | Path `job_id` | Check upload status |
+| Knowledge Base | POST | `/knowledge-base/documents` | Multipart file + Bearer token | Upload a user-specific knowledge-base document; processing starts in background |
+| Knowledge Base | GET | `/knowledge-base/documents` | Bearer token | List documents belonging only to the authenticated user |
+| Knowledge Base | GET | `/knowledge-base/documents/{id}` | Path `document_id` + Bearer | Read one owned knowledge-base document |
+| Knowledge Base | DELETE | `/knowledge-base/documents/{id}` | Path `document_id` + Bearer | Delete one owned document and its Chroma vectors |
+| Knowledge Base | POST | `/knowledge-base/search` | Search request + Bearer token | Stand-alone semantic search restricted to the authenticated user's KB |
+| Analytics | POST | `/analytics/log` | `QueryAnalyticsCreate` | Persist one query analytics event |
+| Analytics | GET | `/analytics/overview` | Bearer token or route configuration | Return aggregate query totals/status/confidence/response-time metrics |
+| Analytics | GET | `/analytics/query-types` | Bearer token or route configuration | Return query counts grouped by query type |
+| Knowledge Gaps | GET | `/knowledge-gaps` | Backend route | List detected knowledge gaps |
+| Knowledge Gaps | GET | `/knowledge-gaps/top` | Backend route | Return top/repeated knowledge gaps |
+| Knowledge Gaps | GET | `/knowledge-gaps/statistics` | Backend route | Return gap aggregate statistics |
 
 The current integrated voice frontend uses `POST /query`; a separate audio-processing endpoint is not required because voice recognition occurs in the browser.
 
@@ -2117,7 +2148,7 @@ alembic current
 Expected on a newly provisioned database:
 
 ```text
-0f628c51b660 (head)
+5a7a6c2b7c8f (head)
 ```
 
 7. Check that the models and database schema agree:
@@ -2236,7 +2267,7 @@ alembic current
 shows:
 
 ```text
-0f628c51b660 (head)
+5a7a6c2b7c8f (head)
 ```
 
 6. Run:
@@ -2300,6 +2331,9 @@ For a local PostgreSQL `querynest` database:
 SELECT COUNT(*) FROM users;
 SELECT COUNT(*) FROM conversations;
 SELECT COUNT(*) FROM conversation_messages;
+SELECT COUNT(*) FROM query_analytics;
+SELECT COUNT(*) FROM knowledge_gaps;
+SELECT COUNT(*) FROM knowledge_base_documents;
 ```
 
 Check Alembic state:
@@ -2362,6 +2396,461 @@ npm run dev
 
 No manual SQL table creation is part of the onboarding procedure.
 
+
+---
+
+## SECTION 28A — MILESTONE 4: QUERY ANALYTICS, KNOWLEDGE GAP DETECTION, AND USER-SPECIFIC KNOWLEDGE BASE
+
+Milestone 4 extends the validated M3 platform without replacing the existing multi-agent, memory, clarification, voice, transparency, authentication, or RAG workflow.
+
+The internship project specification defines Milestone 4 as:
+1. Query Analytics and Knowledge Gap Detection — track unanswered queries, low-confidence responses, and common query themes to identify knowledge-base gaps.
+2. End-to-end testing across a minimum of three distinct knowledge-base domains.
+3. Optimization of retrieval quality, prompt design, agent routing accuracy, and voice interaction reliability.
+4. Technical documentation, project report, and final demonstration. fileciteturn27file2L155-L165
+
+### 28A.1 M4 Backend Components
+
+The following backend modules were added while preserving the M1–M3 architecture:
+
+```text
+backend/app/
+├── analytics/
+│   ├── models.py
+│   ├── schemas.py
+│   ├── service.py
+│   └── router.py
+│
+├── knowledge_gaps/
+│   ├── models.py
+│   ├── schemas.py
+│   ├── service.py
+│   └── router.py
+│
+├── api/
+│   └── knowledge_base.py
+│
+├── services/
+│   └── knowledge_base_service.py
+│
+└── models/
+    └── knowledge_base_schemas.py
+```
+
+`core/models.py` was extended with the SQLAlchemy `KnowledgeBaseDocument` model while preserving the existing `User`, `Conversation`, and `ConversationMessage` models.
+
+### 28A.2 Query Analytics
+
+`QueryAnalytics` stores one telemetry record per processed query.
+
+Core fields include:
+
+```text
+id
+user_id
+conversation_id
+query_text
+query_type
+response_status
+confidence_score
+response_time
+created_at
+```
+
+The backend query endpoint records the authenticated user's ID, original query, classified query type, answered/unanswered status, confidence score, and response time. A clarification-only request is recorded as `unanswered`, because it has not yet produced a resolved answer.
+
+The M4 telemetry operation is deliberately isolated from the core query path. If analytics persistence fails, the code rolls back the telemetry transaction so that the already-working M3 query response is not taken down by an analytics problem.
+
+This implements the required query logging, low-confidence/unanswered tracking, and statistics foundation.
+
+### 28A.3 Analytics API
+
+```text
+POST /analytics/log
+GET  /analytics/overview
+GET  /analytics/query-types
+```
+
+`GET /analytics/overview` provides:
+
+```text
+total_queries
+answered_queries
+unanswered_queries
+average_confidence
+average_response_time
+```
+
+`GET /analytics/query-types` returns query counts grouped by the stored `query_type`.
+
+The current frontend Analytics page transforms these real backend values into:
+
+```text
+Total Queries
+Answered
+Knowledge Gaps / Unanswered
+Average Confidence
+Average Response Time
+Query Type Distribution
+Answer Rate
+```
+
+The frontend no longer relies on the earlier teammate mock analytics payload. The teammate's original `analytics.js` contained locally generated values and synthetic trends; the integrated M4 frontend uses the real backend analytics contract instead. 
+
+### 28A.4 Knowledge Gap Detection
+
+Knowledge-gap detection runs from the retrieval path rather than from general-knowledge LLM requests.
+
+Current detection logic marks a retrieval request as a gap when one or more of the implemented detection conditions is satisfied, including:
+
+```text
+unanswered response
+OR zero retrieved chunks
+OR confidence below the configured threshold
+```
+
+Detected gap records contain the query text, query type, reason, confidence score, occurrence information, and timestamps as supported by the implemented model/schema.
+
+Repeated occurrences of the same query are accumulated through the knowledge-gap service instead of being treated as unrelated independent gap definitions.
+
+General LLM queries are intentionally excluded from knowledge-gap creation because a direct LLM route is an explicit M3 behavior and should not be interpreted as missing KB coverage.
+
+### 28A.5 Knowledge Gap API
+
+The current M4 dashboard consumes:
+
+```text
+GET /knowledge-gaps
+GET /knowledge-gaps/top
+GET /knowledge-gaps/statistics
+```
+
+The implementation does not require a gap-resolution endpoint. No `PATCH /knowledge-gaps/{id}/resolve` operation is part of the current internship scope.
+
+The dashboard displays backend-detected gap records with fields such as:
+
+```text
+Query
+Type
+Reason
+Confidence
+Occurrences
+Detected
+```
+
+### 28A.6 User-Specific Knowledge Base
+
+Milestone 4 adds a second, authenticated document-management path specifically for private per-user knowledge bases.
+
+The main database table is:
+
+```text
+knowledge_base_documents
+```
+
+Core fields:
+
+```text
+id
+user_id
+filename
+original_filename
+file_type
+file_size
+status
+created_at
+updated_at
+```
+
+The document row belongs to the authenticated user through `user_id`.
+
+The ingestion service:
+1. Validates the uploaded file.
+2. Saves a temporary local copy.
+3. Creates a PostgreSQL `KnowledgeBaseDocument` record with `processing` status.
+4. Extracts text using the existing M1 extractor.
+5. Chunks the text using the existing M1 chunker.
+6. Generates embeddings using the existing SentenceTransformer infrastructure.
+7. Stores vectors in ChromaDB with metadata containing:
+   - `document_id`
+   - `filename`
+   - `chunk_index`
+   - `user_id`
+8. Updates PostgreSQL status to `completed` or `failed`.
+9. Cleans up the temporary uploaded file.
+
+### 28A.7 User-Specific Knowledge Base API
+
+```text
+POST /knowledge-base/documents
+GET  /knowledge-base/documents
+GET  /knowledge-base/documents/{document_id}
+DELETE /knowledge-base/documents/{document_id}
+POST /knowledge-base/search
+```
+
+All user-specific document operations use the authenticated user identity.
+
+For example, listing documents applies:
+
+```text
+KnowledgeBaseDocument.user_id == current_user.id
+```
+
+Deleting a document first removes its user-scoped Chroma vectors and then removes the PostgreSQL metadata row.
+
+The stand-alone search endpoint also filters ChromaDB by the authenticated `user_id`.
+
+### 28A.8 User-Specific Retrieval Integration
+
+M4 does not create a second RAG engine.
+
+The existing M2/M3 retrieval pipeline remains:
+
+```text
+Query Understanding
+       ↓
+Semantic Search
+       +
+Optional Exact Search
+       ↓
+Merge
+       ↓
+Rerank
+       ↓
+Low-confidence Filtering
+       ↓
+Top-K Context
+       ↓
+Response Generation
+```
+
+The M4 change is that authenticated requests now carry the current `user_id` through workflow state.
+
+```text
+FastAPI /query
+      ↓
+run_workflow(..., user_id=current_user.id)
+      ↓
+WorkflowState.user_id
+      ↓
+RetrievalAgent
+      ↓
+Semantic / Exact search
+      ↓
+ChromaDB filter:
+user_id == authenticated user
+```
+
+The retrieval modules retain backward compatibility: when no user ID is supplied, the legacy shared search functions remain available; authenticated application queries use the user-scoped functions.
+
+This prevents one authenticated user's uploaded vectors from being retrieved for another user.
+
+### 28A.9 User-Isolation Validation
+
+The user-specific KB implementation was validated with two authenticated users:
+
+```text
+User A
+  uploads document
+      ↓
+User A /knowledge-base/documents → document visible
+User A /query → document retrievable
+
+User B
+  /knowledge-base/documents → empty for User A's document
+  /knowledge-base/search → no User A results
+  /query → User A document not retrieved
+```
+
+This validates isolation at both the document metadata and vector-retrieval levels.
+
+### 28A.10 M4 Frontend Integration
+
+The frontend now includes:
+
+```text
+src/pages/AnalyticsPage.jsx
+src/pages/KnowledgeGapPage.jsx
+src/pages/HistoryPage.jsx
+src/pages/HistoryPage.css
+src/pages/Milestone4.css
+src/services/analytics.js
+```
+
+The existing application navigation was extended with:
+
+```text
+Upload Documents
+AI Chatbot
+History & Statistics
+Analytics
+Knowledge Gaps
+```
+
+`App.jsx` mounts the M4 pages while preserving the existing Upload, Chat, Auth and History functionality.
+
+The updated `api.js` retains compatibility aliases for the earlier frontend document methods while adding the authenticated `/knowledge-base/*` API.
+
+`Authcontext.jsx` remains the central authentication provider. During a normal login attempt, its request does not toggle the global initial-session `loading` state, preventing the temporary “Loading QueryNest… / Verifying your session” screen from obscuring login errors. Initial JWT session restoration still uses the loading screen.
+
+The Analytics UI uses real backend data. It does not display synthetic daily trends, fabricated topic clusters, or unsupported grounding percentages.
+
+### 28A.11 M4 Database Migrations
+
+The M4 database work was applied through Alembic.
+
+Migration chain:
+
+```text
+0f628c51b660
+      ↓
+7c91f9e3a2b4_milestone4_analytics_and_knowledge_gaps
+      ↓
+5a7a6c2b7c8f_add_user_specific_knowledge_base_
+```
+
+The first M4 migration adds the analytics and knowledge-gap tables.
+
+The subsequent migration adds:
+
+```text
+knowledge_base_documents
+```
+
+The current development database was successfully upgraded with:
+
+```bash
+alembic upgrade head
+```
+
+and the resulting schema contains the M3 tables plus the M4 analytics, gap-detection, and user-specific KB tables.
+
+### 28A.12 M4 End-to-End Flow
+
+```text
+Authenticated User
+        ↓
+React Upload / Chat
+        ↓
+FastAPI
+        ├── User-specific KB APIs
+        │       ↓
+        │   PostgreSQL metadata
+        │       +
+        │   ChromaDB user-scoped vectors
+        │
+        └── POST /query
+                ↓
+          Existing M3 Workflow
+                ↓
+        Memory / Context Resolution
+                ↓
+          Query Understanding
+                ↓
+             Query Router
+          ↙       ↓        ↘
+ General LLM  Clarification  Retrieval
+                              ↓
+                     User-scoped RAG
+                              ↓
+                    Response Generation
+                              ↓
+                      Save Conversation
+                              ↓
+                    M4 Telemetry Logging
+                         ↙          ↘
+                 Query Analytics   Gap Detection
+                         ↓              ↓
+                 Analytics UI    Knowledge Gap UI
+```
+
+### 28A.13 M4 Frontend Validation
+
+The integrated M4 frontend was validated through the following runtime flow:
+
+```text
+Login
+  ↓
+Upload a supported document
+  ↓
+Wait until INDEXED
+  ↓
+Ask a question about the uploaded document
+  ↓
+Verify grounded answer + source
+  ↓
+Open Analytics
+  ↓
+Verify query count changes after another query
+  ↓
+Open Knowledge Gaps
+  ↓
+Verify detected historical gap records
+```
+
+A successful analytics check is demonstrated when a new chatbot query increases the total query count and, for an answered request, the answered-query count also increases.
+
+### 28A.14 Three-Domain Test Requirement
+
+The internship PDF explicitly requires end-to-end validation across a minimum of three distinct knowledge-base domains. fileciteturn27file2L159-L161
+
+A suitable validation matrix is:
+
+```text
+Domain 1: Technology / AI
+Domain 2: Finance / Business
+Domain 3: Science / General Knowledge
+```
+
+For each domain, record:
+
+```text
+document uploaded
+document indexed
+factual query
+procedural query
+comparative query where applicable
+unanswerable query
+retrieved source
+confidence
+knowledge-gap behavior
+multi-turn follow-up
+voice query
+```
+
+The application code should not claim that the three-domain requirement is complete merely because the dashboard exists; the actual test evidence must be recorded separately.
+
+### 28A.15 M4 Optimization and Documentation Requirement
+
+The internship PDF also requires optimization and documentation. fileciteturn27file2L162-L165
+
+The current implementation provides technical foundations for:
+
+```text
+Retrieval Quality Optimization
+- existing hybrid retrieval
+- reranking
+- low-confidence filtering
+- user-scoped retrieval
+
+Prompt / Response Optimization
+- existing grounded response-generation prompts
+- retrieval-aware context selection
+
+Agent Routing Optimization
+- deterministic query routing
+- explicit general / clarification / retrieval paths
+
+Voice Reliability Testing
+- browser Web Speech API
+- transcript submission through normal /query
+- browser Speech Synthesis
+```
+
+These capabilities should be backed by recorded test results in the final project report rather than by unsupported percentage claims.
+
+
 ## SECTION 29 — CURRENT MILESTONE STATUS
 
 ### Milestone 1 — Completed
@@ -2384,6 +2873,37 @@ No manual SQL table creation is part of the onboarding procedure.
 - Confidence indicator.
 - LangGraph orchestration.
 - Frontend/API integration.
+
+### Milestone 4 — Integrated / Partially Validated
+- Query Analytics SQLAlchemy model and persistence.
+- Query-level logging from the authenticated `/query` path.
+- Tracking of answered/unanswered response status.
+- Tracking of confidence scores and response time.
+- Query-type aggregation endpoint.
+- Knowledge-gap detection for retrieval failures, zero results and low-confidence retrieval.
+- Repeated knowledge-gap occurrence tracking.
+- Knowledge-gap list, top-gap and statistics endpoints.
+- User-specific `KnowledgeBaseDocument` PostgreSQL model.
+- Authenticated user-specific document upload, listing, retrieval, deletion and stand-alone search endpoints.
+- Background extraction, chunking, embedding and ChromaDB indexing for user-specific documents.
+- ChromaDB metadata now includes `user_id` for private vector filtering.
+- Authenticated `user_id` propagated through workflow state into Retrieval Agent.
+- User-scoped semantic and exact retrieval functions while retaining legacy shared-search compatibility.
+- Frontend Analytics Dashboard connected to real backend analytics.
+- Frontend Knowledge Gap Dashboard connected to real backend gap records.
+- Frontend History & Statistics page integrated.
+- M4 navigation integrated into the authenticated React workspace.
+- Analytics query distribution display updated to show values such as `17 queries · 58.6%`.
+- Login error UX corrected so failed credentials remain visible on the login page while initial session-verification loading behavior is preserved.
+
+### Milestone 4 Validation Status
+- Core M4 analytics runtime behavior: validated.
+- Core knowledge-gap runtime behavior: validated.
+- User-specific knowledge-base upload/index/retrieval isolation: validated.
+- Frontend M4 dashboards: validated.
+- Three-domain end-to-end evidence: should be recorded as a separate final test artifact.
+- Retrieval/prompt/routing/voice optimization evidence: should be recorded in the final report.
+- Final technical documentation/demo: this guide and README now include the M4 implementation details; final demo evidence remains a project-delivery activity.
 
 ### Milestone 3 — Integrated / Validated
 - Clarification Agent and conditional clarification routing.
@@ -2412,7 +2932,7 @@ No manual SQL table creation is part of the onboarding procedure.
 The following remain future/optional enhancements unless separately integrated and tested:
 - advanced conversation search/summarization
 - learned retrieval rerankers
-- automated analytics/knowledge-gap dashboards
+- advanced automated analytics/knowledge-gap visualizations beyond the currently implemented M4 dashboards
 - production-grade observability and distributed logging
 - Dockerized deployment
 
@@ -2435,6 +2955,27 @@ Agents + Memory
     ↓
 RAG infrastructure / PostgreSQL
 ```
+
+### Milestone 4
+The platform now adds authenticated user-specific knowledge-base handling and telemetry around the M3 workflow:
+
+```text
+User-scoped document ingestion
+        ↓
+PostgreSQL document ownership + ChromaDB user_id metadata
+        ↓
+User-scoped Retrieval
+        ↓
+M3 Answer
+        ↓
+Query Analytics
+        ↓
+Knowledge Gap Detection
+        ↓
+Analytics / Knowledge Gap Dashboards
+```
+
+The M4 additions do not replace the M3 agents, memory, clarification, voice or transparency modules.
 
 ### Milestone 3
 The primary validated conversation flow is:
@@ -2511,6 +3052,10 @@ Run FastAPI
 Run React
       ↓
 Register a new user
+      ↓
+Upload a user-specific KB document
+      ↓
+Test Chat + Analytics + Knowledge Gaps
 ```
 
 The developer does **not** need:

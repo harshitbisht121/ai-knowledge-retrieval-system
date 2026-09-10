@@ -193,6 +193,8 @@ export default function UploadPage({ onStartChat }) {
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
                         {doc.status === 'indexed' ? (
                           <span className="badge badge-success" style={{ fontSize: '0.65rem' }}>Indexed</span>
+                        ) : doc.status === 'failed' ? (
+                          <span className="badge badge-error" style={{ fontSize: '0.65rem' }}>Failed</span>
                         ) : (
                           <span className="badge badge-warning" style={{ fontSize: '0.65rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
                             <span className="typing-dot" style={{ width: '4px', height: '4px', background: 'currentColor' }}></span>

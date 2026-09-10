@@ -51,6 +51,11 @@ export default function ChatPage() {
     setConversationError,
   ] = useState(null);
 
+  const [
+    deletingConversationId,
+    setDeletingConversationId,
+  ] = useState(null);
+
 
   /* ----------------------------------------------------------------
      Chat state
@@ -676,6 +681,120 @@ export default function ChatPage() {
       await loadConversation(
         selectedId
       );
+    };
+
+
+  /* =================================================================
+     Delete Conversation
+     ================================================================= */
+
+  const handleDeleteConversation =
+    async (conversationToDelete) => {
+
+      if (!conversationToDelete) {
+        return;
+      }
+
+      const idToDelete =
+        conversationToDelete.conversation_id;
+
+      if (!idToDelete || deletingConversationId) {
+        return;
+      }
+
+      const confirmed = window.confirm(
+        'Are you sure you want to delete this conversation? This action cannot be undone.'
+      );
+
+      if (!confirmed) {
+        return;
+      }
+
+      if (isListening) {
+        stopListening();
+      }
+
+      if (
+        'speechSynthesis' in
+        window
+      ) {
+        window.speechSynthesis.cancel();
+      }
+
+      setDeletingConversationId(idToDelete);
+      setConversationError(null);
+
+      try {
+
+        await api.deleteConversation(
+          idToDelete
+        );
+
+        const remainingConversations =
+          conversations.filter(
+            (conversation) =>
+              conversation.conversation_id !==
+              idToDelete
+          );
+
+        setConversations(
+          remainingConversations
+        );
+
+        /*
+         * If another conversation is currently
+         * open, leave it untouched.
+         */
+        if (conversationId !== idToDelete) {
+          return;
+        }
+
+        /*
+         * The active conversation was deleted.
+         * Open the next available conversation.
+         * If none remain, start a clean local chat.
+         */
+        if (remainingConversations.length > 0) {
+
+          const nextConversation =
+            remainingConversations[0];
+
+          await loadConversation(
+            nextConversation.conversation_id
+          );
+
+        } else {
+
+          setConversationId(null);
+
+          setMessages([
+            {
+              ...WELCOME_MESSAGE,
+              timestamp: new Date().toISOString(),
+            },
+          ]);
+
+          setCurrentResults([]);
+          setSelectedSource(null);
+          setInputValue('');
+        }
+
+      } catch (error) {
+
+        console.error(
+          'Failed to delete conversation:',
+          error
+        );
+
+        setConversationError(
+          error?.message ||
+            'Unable to delete this conversation. Please try again.'
+        );
+
+      } finally {
+
+        setDeletingConversationId(null);
+      }
     };
 
 
@@ -1315,6 +1434,7 @@ export default function ChatPage() {
 
   return (
     <div
+      className="chat-page-layout"
       style={{
         display: 'flex',
         width: '100%',
@@ -1328,6 +1448,7 @@ export default function ChatPage() {
           ============================================================ */}
 
       <div
+        className="chat-page-main-panel"
         style={{
           flex: 1,
           display: 'flex',
@@ -1434,69 +1555,154 @@ export default function ChatPage() {
             }}
           >
 
-            <select
-              value={
-                conversationId ||
-                ''
-              }
-              onChange={
-                (event) =>
-                  handleSelectConversation(
-                    event.target.value
-                  )
-              }
-              disabled={
-                loadingConversation ||
-                isTyping
-              }
+            <div
               style={{
-                width:
-                  '100%',
-                maxWidth:
-                  '580px',
-                height:
-                  '38px',
-                padding:
-                  '0 12px',
-                borderRadius:
-                  '9px',
-                border:
-                  '1px solid var(--border-color)',
-                background:
-                  'var(--bg-input)',
-                color:
-                  'var(--text-secondary)',
-                outline:
-                  'none',
-                cursor:
-                  'pointer',
+                width: '100%',
+                maxWidth: '680px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
               }}
             >
 
-              {conversations.map(
-                (
-                  conversation,
-                  index
-                ) => (
+              <select
+                value={
+                  conversationId ||
+                  ''
+                }
+                onChange={
+                  (event) =>
+                    handleSelectConversation(
+                      event.target.value
+                    )
+                }
+                disabled={
+                  loadingConversation ||
+                  isTyping ||
+                  Boolean(deletingConversationId)
+                }
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  height: '38px',
+                  padding: '0 12px',
+                  borderRadius: '9px',
+                  border:
+                    '1px solid var(--border-color)',
+                  background: 'var(--bg-input)',
+                  color: 'var(--text-secondary)',
+                  outline: 'none',
+                  cursor: 'pointer',
+                }}
+              >
 
-                  <option
-                    key={
-                      conversation.conversation_id
-                    }
-                    value={
-                      conversation.conversation_id
-                    }
+                {conversations.map(
+                  (
+                    conversation,
+                    index
+                  ) => (
+
+                    <option
+                      key={
+                        conversation.conversation_id
+                      }
+                      value={
+                        conversation.conversation_id
+                      }
+                    >
+                      {conversation.title?.trim() ||
+                        `Conversation ${
+                          conversations.length -
+                          index
+                        }`}
+                    </option>
+
+                  )
+                )}
+
+              </select>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const selectedConversation =
+                    conversations.find(
+                      (conversation) =>
+                        conversation.conversation_id ===
+                        conversationId
+                    );
+
+                  handleDeleteConversation(
+                    selectedConversation
+                  );
+                }}
+                disabled={
+                  loadingConversation ||
+                  isTyping ||
+                  !conversationId ||
+                  Boolean(deletingConversationId)
+                }
+                title="Delete conversation"
+                aria-label="Delete conversation"
+                style={{
+                  width: '38px',
+                  height: '38px',
+                  flexShrink: 0,
+                  borderRadius: '9px',
+                  border:
+                    '1px solid var(--border-color)',
+                  background: 'var(--bg-input)',
+                  color: 'var(--accent-rose)',
+                  cursor:
+                    loadingConversation ||
+                    isTyping ||
+                    !conversationId ||
+                    deletingConversationId
+                      ? 'not-allowed'
+                      : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  opacity:
+                    loadingConversation ||
+                    isTyping ||
+                    !conversationId ||
+                    deletingConversationId
+                      ? 0.5
+                      : 1,
+                }}
+              >
+
+                {deletingConversationId === conversationId ? (
+                  <span
+                    style={{
+                      fontSize: '0.7rem',
+                      fontWeight: 600,
+                    }}
                   >
-                    {`Conversation ${
-                      conversations.length -
-                      index
-                    }`}
-                  </option>
+                    ...
+                  </span>
+                ) : (
+                  <svg
+                    width="17"
+                    height="17"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <polyline points="3 6 5 6 21 6" />
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                    <line x1="10" y1="11" x2="10" y2="17" />
+                    <line x1="14" y1="11" x2="14" y2="17" />
+                  </svg>
+                )}
 
-                )
-              )}
+              </button>
 
-            </select>
+            </div>
 
           </div>
         )}
@@ -2242,6 +2448,7 @@ export default function ChatPage() {
           ============================================================ */}
 
       <div
+        className="context-inspector-panel"
         style={{
           width:
             '360px',
