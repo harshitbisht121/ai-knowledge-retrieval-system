@@ -23,3 +23,8 @@ alembic
 bcrypt
 python-jose[cryptography]==3.5.0
 email-validator
+
+# VLM / Image Understanding
+torch==2.14.0
+transformers==5.15.0
+Pillow==12.3.0

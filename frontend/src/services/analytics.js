@@ -50,9 +50,10 @@ function confidencePercent(value) {
 }
 
 export async function getAnalytics() {
-  const [overview, queryTypes] = await Promise.all([
+  const [overview, queryTypes, queryThemes] = await Promise.all([
     fetchJson('/analytics/overview'),
     fetchJson('/analytics/query-types'),
+    fetchJson('/analytics/query-themes'),
   ]);
 
   const total = Number(overview?.total_queries || 0);
@@ -82,6 +83,7 @@ export async function getAnalytics() {
       avgResponseTime: { value: overview?.average_response_time ?? null },
     },
     queryTypes: queryTypeData,
+    queryThemes: Array.isArray(queryThemes) ? queryThemes : [],
   };
 }
 

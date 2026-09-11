@@ -42,6 +42,7 @@ export default function AnalyticsPage({ onNavigateToGaps }) {
   const avgConfidence = data?.summary?.avgConfidence?.value;
   const avgResponseTime = data?.summary?.avgResponseTime?.value;
   const answerRate = total > 0 ? (answered / total) * 100 : 0;
+  const queryThemes = data?.queryThemes || [];
 
   const handleExport = useMemo(() => () => {
     if (!data) return;
@@ -54,11 +55,22 @@ export default function AnalyticsPage({ onNavigateToGaps }) {
       ['average_confidence_pct', avgConfidence == null ? '' : avgConfidence.toFixed(2)],
       ['average_response_time_seconds', avgResponseTime ?? ''],
       ...data.queryTypes.map((item) => [`query_type:${item.label}`, item.count]),
+      ['section', 'common_query_themes'],
+      ['theme', 'query_count', 'unanswered', 'low_confidence', 'average_confidence_pct', 'gap_score_pct', 'knowledge_gap'],
+      ...queryThemes.map((item) => [
+        item.theme,
+        item.query_count,
+        item.unanswered_count,
+        item.low_confidence_count,
+        item.average_confidence == null ? '' : (item.average_confidence * 100).toFixed(1),
+        (item.gap_score * 100).toFixed(1),
+        item.knowledge_gap ? 'yes' : 'no',
+      ]),
     ]);
-  }, [data, total, answered, unanswered, answerRate, avgConfidence, avgResponseTime]);
+  }, [data, total, answered, unanswered, answerRate, avgConfidence, avgResponseTime, queryThemes]);
 
   if (loading) {
-    return <div className="m4-page"><div className="glass-panel m4-state"><h3>Loading analytics…</h3><p>Fetching real Milestone 4 telemetry from the backend.</p></div></div>;
+    return <div className="m4-page"><div className="glass-panel m4-state"><h3>Loading analytics…</h3><p>Gathering the latest analytics and insights</p></div></div>;
   }
 
   if (error) {
@@ -148,11 +160,44 @@ export default function AnalyticsPage({ onNavigateToGaps }) {
 
       <div className="glass-panel m4-panel">
         <div className="m4-panel-head">
+          <div>
+            <h3 className="m4-panel-title">Common Query Themes</h3>
+            <p className="m4-panel-sub">Semantically similar user queries are grouped with the analytics-only all-MiniLM-L6-v2 model. Themes with repeated unanswered or low-confidence queries are flagged as potential knowledge-base gaps.</p>
+          </div>
+        </div>
+
+        {queryThemes.length === 0 ? (
+          <p style={{ color: 'var(--text-muted)' }}>No query-theme data is available yet. Submit a few queries to build semantic themes.</p>
+        ) : (
+          <div className="m4-theme-grid">
+            {queryThemes.slice(0, 8).map((theme) => (
+              <div key={`${theme.theme}-${theme.representative_query}`} className={`m4-theme-card ${theme.knowledge_gap ? 'gap' : ''}`}>
+                <div className="m4-theme-top">
+                  <strong>{theme.theme}</strong>
+                  <span className={`m4-status ${theme.knowledge_gap ? 'warn' : 'ok'}`}>
+                    {theme.knowledge_gap ? '⚠ Knowledge Gap' : '✓ Healthy'}
+                  </span>
+                </div>
+                <div className="m4-theme-query">“{theme.representative_query}”</div>
+                <div className="m4-theme-stats">
+                  <span>{theme.query_count} queries</span>
+                  <span>{theme.unanswered_count} unanswered</span>
+                  <span>{theme.low_confidence_count} low confidence</span>
+                  <span>{(theme.gap_score * 100).toFixed(0)}% gap score</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="glass-panel m4-panel">
+        <div className="m4-panel-head">
           <div><h3 className="m4-panel-title">Knowledge Gap Monitoring</h3><p className="m4-panel-sub">Open backend-detected gaps are available in the dedicated dashboard.</p></div>
           <button className="btn btn-secondary" onClick={onNavigateToGaps}>View Knowledge Gaps →</button>
         </div>
         <div style={{ color: 'var(--text-secondary)', fontSize: '0.82rem' }}>
-          The dashboard deliberately avoids inventing unsupported daily trends, semantic topic clusters, or grounding percentages.
+          Common query themes are analyzed separately from RAG retrieval, so the RAG embedding model can be optimized later without changing this theme-detection component.
         </div>
       </div>
     </div>

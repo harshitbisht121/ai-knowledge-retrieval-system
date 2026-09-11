@@ -18,6 +18,7 @@ from app.analytics.schemas import (
     AnalyticsOverview,
     QueryAnalyticsCreate,
     QueryAnalyticsResponse,
+    QueryThemeResponse,
 )
 
 from app.analytics.service import (
@@ -25,6 +26,8 @@ from app.analytics.service import (
     get_query_type_statistics,
     log_query,
 )
+
+from app.analytics.theme_service import get_query_themes
 
 from app.core.database import get_db
 from app.core.models import User
@@ -114,6 +117,27 @@ def query_type_statistics(
     )
 
     return get_query_type_statistics(
+        db=db,
+        user_id=user_id,
+    )
+
+
+@router.get(
+    "/query-themes",
+    response_model=list[QueryThemeResponse],
+    summary="Get Common Query Themes",
+)
+def query_theme_statistics(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Group semantically similar queries for the authenticated user and
+    expose theme-level knowledge-gap signals.
+    """
+
+    user_id = str(current_user.id)
+    return get_query_themes(
         db=db,
         user_id=user_id,
     )
