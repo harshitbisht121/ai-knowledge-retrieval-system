@@ -320,6 +320,7 @@ def query_documents(
                     create_knowledge_gap(
                         db=db,
                         data=gap_data,
+                        user_id=str(current_user.id),
                     )
 
         except Exception:

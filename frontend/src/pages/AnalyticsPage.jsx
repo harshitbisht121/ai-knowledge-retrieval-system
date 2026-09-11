@@ -34,8 +34,6 @@ export default function AnalyticsPage({ onNavigateToGaps }) {
 
   useEffect(() => {
     load();
-    const interval = window.setInterval(load, 30000);
-    return () => window.clearInterval(interval);
   }, [load]);
 
   const total = data?.summary?.totalQueries?.value ?? 0;
