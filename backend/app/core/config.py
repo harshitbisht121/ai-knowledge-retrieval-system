@@ -22,6 +22,9 @@ ALLOWED_EXTENSIONS = {
     ".docx",
     ".txt",
     ".csv",
+    ".jpg",
+    ".jpeg",
+    ".png",
 }
 
 # Maximum allowed upload size (10 MB).

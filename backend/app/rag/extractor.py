@@ -38,41 +38,94 @@ def select_file():
 
 
 def extract_pdf(file_path):
-
+    from app.services.vlm_service import vlm_service
+    
     reader = PdfReader(file_path)
-
     text = ""
+    images_metadata = []
+    image_count = 0
+    MAX_IMAGES = 20 # Limit images to avoid extreme slowdowns
 
-    for page_number, page in enumerate(
-        reader.pages,
-        start=1
-    ):
-
+    for page_number, page in enumerate(reader.pages, start=1):
         page_text = page.extract_text()
-
         if page_text:
-
             text += f"\n--- Page {page_number} ---\n"
             text += page_text
+            
+        # Process images on the page
+        for img_idx, image_file_object in enumerate(page.images):
+            if image_count >= MAX_IMAGES:
+                break
+                
+            try:
+                # Use vlm_service to analyze the image
+                vlm_answer = vlm_service.analyze_image(
+                    image_file_object.data, 
+                    "Describe this image in detail. Make sure to read and transcribe any prominent text (e.g., names, titles, dates, or data points).",
+                    max_tokens=200
+                )
+                if vlm_answer:
+                    # Create a separate metadata record for the image
+                    images_metadata.append({
+                        "content": f"[Visual Content: {vlm_answer}]",
+                        "metadata": {
+                            "page_number": page_number,
+                            "image_index": img_idx,
+                            "source_type": "pdf_image"
+                        }
+                    })
+                image_count += 1
+            except Exception as e:
+                # Ignore extraction errors for individual images
+                print(f"Failed to process image on page {page_number}: {e}")
+                pass
 
-    return text
+    return {"text": text, "images": images_metadata}
 
 
 def extract_docx(file_path):
+    from app.services.vlm_service import vlm_service
 
     document = Document(file_path)
-
     text = ""
+    images_metadata = []
 
     for paragraph in document.paragraphs:
-
         paragraph_text = paragraph.text.strip()
-
         if paragraph_text:
-
             text += paragraph_text + "\n"
 
-    return text
+    image_count = 0
+    MAX_IMAGES = 20
+
+    # Extract images from docx parts
+    for rel in document.part.rels.values():
+        if "image" in rel.target_ref:
+            if image_count >= MAX_IMAGES:
+                break
+            try:
+                image_data = rel.target_part.blob
+                # Use vlm_service to analyze the image
+                vlm_answer = vlm_service.analyze_image(
+                    image_data, 
+                    "Describe this image in detail. Make sure to read and transcribe any prominent text (e.g., names, titles, dates, or data points).",
+                    max_tokens=200
+                )
+                if vlm_answer:
+                    # Create a separate metadata record for the image
+                    images_metadata.append({
+                        "content": f"[Visual Content: {vlm_answer}]",
+                        "metadata": {
+                            "image_index": image_count,
+                            "source_type": "docx_image"
+                        }
+                    })
+                image_count += 1
+            except Exception as e:
+                print(f"Failed to process image in DOCX: {e}")
+                pass
+
+    return {"text": text, "images": images_metadata}
 
 
 def extract_txt(file_path):
@@ -221,17 +274,39 @@ def extract_document(file_path):
         extension
     )
 
+    images = []
+
     if extension == ".pdf":
 
-        text = extract_pdf(file_path)
+        result = extract_pdf(file_path)
+        text = result["text"]
+        images = result["images"]
 
     elif extension == ".docx":
 
-        text = extract_docx(file_path)
+        result = extract_docx(file_path)
+        text = result["text"]
+        images.extend(result["images"])
 
     elif extension == ".txt":
 
         text = extract_txt(file_path)
+
+    elif extension in [".jpg", ".jpeg", ".png"]:
+        
+        from app.services.vlm_service import vlm_service
+        with open(file_path, "rb") as f:
+            image_data = f.read()
+            
+        try:
+            vlm_answer = vlm_service.analyze_image(
+                image_data, 
+                "Describe this image in detail. Make sure to read and transcribe any prominent text (e.g., names, titles, dates, or data points).",
+                max_tokens=200
+            )
+            text = f"[Image Description: {vlm_answer}]"
+        except Exception as e:
+            raise ValueError(f"Failed to process image: {e}")
 
     elif extension == ".csv":
 
@@ -244,7 +319,7 @@ def extract_document(file_path):
             "Use PDF, DOCX, TXT or CSV."
         )
 
-    return clean_text(text)
+    return {"text": clean_text(text), "images": images}
 
 
 def save_extracted_text(
@@ -364,4 +439,3 @@ def main():
 if __name__ == "__main__":
 
     main()
-

@@ -114,8 +114,9 @@ IMPORTANT RULES:
 
 - Use "factual", "procedural", or "comparative" when the query is
   intended to be answered using the uploaded knowledge base.
-- Use "general" for ordinary general-knowledge or conversational
-  questions that do not depend on the uploaded knowledge base.
+- Use "general" ONLY for explicit conversational greetings (e.g., "Hello", "How are you") or questions that are unmistakably general-knowledge and cannot possibly be a search for a user's uploaded document.
+- CRITICAL: Questions about specific technologies, services, products, companies, or technical concepts (e.g., "What is AWS Lambda?", "What is Docker?", "How does Kubernetes work?") must ALWAYS be classified as "factual" or "procedural" — NEVER as "general". The user may have uploaded documents about these topics, and the retrieval pipeline must be used to check.
+- If the user types a noun phrase, a document name, or a topic without forming a full conversational sentence (e.g. "AWS Certified Cloud Practitioner certificate", "invoice 123", "resume", "flood.jpg"), assume they are searching for it in the uploaded knowledge base and classify it as "factual" or "ambiguous" depending on specificity. Do NOT classify it as "general".
 - Do not route a normal general-knowledge question to retrieval
   merely because it is phrased as a factual question.
 - Return exactly ONE category.

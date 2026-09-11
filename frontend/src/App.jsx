@@ -19,19 +19,61 @@ function App() {
     return (
       <div className="app-auth-loading">
         <div className="app-auth-loading-content">
-          <div className="app-auth-loading-title">Loading QueryNest...</div>
-          <div className="app-auth-loading-text">Verifying your session</div>
+          <div className="app-auth-loading-title">
+            Loading QueryNest...
+          </div>
+          <div className="app-auth-loading-text">
+            Verifying your session
+          </div>
         </div>
       </div>
     );
   }
 
-  if (!isLoggedIn || !user) return <AuthPage />;
+  if (!isLoggedIn || !user) {
+    return <AuthPage />;
+  }
 
-  const show = (tab) => ({
-    display: activeTab === tab ? 'block' : 'none',
-    height: '100%',
-  });
+  // Render only the currently active page.
+  // This prevents inactive pages from mounting and
+  // triggering their API calls/useEffect hooks.
+  const renderActivePage = () => {
+    switch (activeTab) {
+      case 'upload':
+        return (
+          <UploadPage
+            onStartChat={() => setActiveTab('chat')}
+          />
+        );
+
+      case 'chat':
+        return <ChatPage />;
+
+      case 'history':
+        return <HistoryPage />;
+
+      case 'analytics':
+        return (
+          <AnalyticsPage
+            onNavigateToGaps={() => setActiveTab('gaps')}
+          />
+        );
+
+      case 'gaps':
+        return (
+          <KnowledgeGapPage
+            onIngest={() => setActiveTab('upload')}
+          />
+        );
+
+      default:
+        return (
+          <UploadPage
+            onStartChat={() => setActiveTab('chat')}
+          />
+        );
+    }
+  };
 
   return (
     <div className="main-app">
@@ -44,17 +86,7 @@ function App() {
       />
 
       <main className="main-content">
-        <div style={show('upload')}>
-          <UploadPage onStartChat={() => setActiveTab('chat')} />
-        </div>
-        <div style={show('chat')}><ChatPage /></div>
-        <div style={show('history')}><HistoryPage /></div>
-        <div style={show('analytics')}>
-          <AnalyticsPage onNavigateToGaps={() => setActiveTab('gaps')} />
-        </div>
-        <div style={show('gaps')}>
-          <KnowledgeGapPage onIngest={() => setActiveTab('upload')} />
-        </div>
+        {renderActivePage()}
       </main>
     </div>
   );

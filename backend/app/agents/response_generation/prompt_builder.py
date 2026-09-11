@@ -225,6 +225,10 @@ ANSWER STYLE:
     structure when practical.
 28. Do not mention retrieval internals unless necessary to explain
     why the requested information is unavailable.
+29. If the user asks generally about a document (e.g. "tell me about..."),
+    and the retrieved context contains ANY text from it (even sparse text like
+    names, dates, or URLs), summarize whatever is available and cite it using
+    [1], rather than claiming there is not enough information.
 
 Retrieved Context:
 ------------------

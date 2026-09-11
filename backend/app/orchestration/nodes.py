@@ -71,9 +71,9 @@ _query_understanding_agent = QueryUnderstandingAgent(
 )
 
 _retrieval_agent = RetrievalAgent(
-    default_k=3,
+    default_k=5,
     semantic_candidate_multiplier=5,
-    relevance_threshold=0.30,
+    relevance_threshold=0.10,  # permissive — reranker already sorts by score desc
     enable_diversification=True,
 )
 
@@ -268,6 +268,7 @@ Return ONLY the standalone query.
         # Memory must never make a normal query fail.
         # Fall back to the original user query.
         return query
+
 
 
 # =====================================================================
@@ -628,7 +629,9 @@ def retrieval_node(
     """
     Run the existing Retrieval Agent.
 
-    The Retrieval Agent itself is unchanged.
+    When semantic search returns no results (e.g. the relevance threshold
+    filtered everything out), fall back to a filename-based lookup so that
+    queries like "tell me about flood.jpg" still work.
     """
 
     if _has_error(state):
@@ -664,6 +667,125 @@ def retrieval_node(
             )
         )
 
+        # ----------------------------------------------------------------
+        # Filename-based fallback
+        #
+        # When semantic/lexical retrieval yields nothing (all candidates
+        # were below the relevance threshold), try to find chunks whose
+        # stored filename appears in the raw query.  This handles queries
+        # like "can u tell about flood.jpg" where the semantic distance
+        # between the query text and the VLM-generated image description
+        # is too large to pass the threshold.
+        # ----------------------------------------------------------------
+
+        print(f"\n[RETRIEVAL] Query: {state.get('query', '')}")
+        print(f"[RETRIEVAL] User ID: {state.get('user_id')}")
+        print(f"[RETRIEVAL] Primary results after threshold: {len(retrieval_result.get('results', []))}")
+
+        # Backward-compat: if primary user-filtered retrieval returns nothing,
+        # retry without user_id (for docs indexed before user_id was required).
+        results = retrieval_result.get("results", [])
+        user_id_used = state.get("user_id")
+
+        if not results and user_id_used:
+            print("[RETRIEVAL] Primary retrieval empty — retrying without user_id filter (backward-compat)")
+            no_user_result = _retrieval_agent.run(
+                analysis,
+                k=k,
+                user_id=None,
+            )
+            if no_user_result.get("results"):
+                print(f"[RETRIEVAL] Backward-compat retry returned {len(no_user_result['results'])} results")
+                retrieval_result = no_user_result
+
+        results = retrieval_result.get("results", [])
+
+        if not results:
+            from app.rag.chromadb_service import search_by_filename
+
+            raw_query = state.get("query", "")
+
+            # Extract any word that looks like a filename (contains a dot)
+            import re as _re
+            filename_tokens = _re.findall(
+                r"[\w\-]+\.(?:jpg|jpeg|png|pdf|docx|txt|csv)",
+                raw_query,
+                flags=_re.IGNORECASE,
+            )
+
+            fallback_chunks = []
+            for fname in filename_tokens:
+                fallback_chunks.extend(search_by_filename(fname, raw_query=raw_query, user_id=state.get("user_id")))
+            # NOTE: We intentionally do NOT fall back to search_by_filename(raw_query)
+            # when no filename tokens are found. That would treat the entire question
+            # as a filename filter and prevent normal semantic retrieval from working.
+
+            if fallback_chunks:
+                print(f"[RETRIEVAL] Filename fallback returned {len(fallback_chunks)} chunks")
+                retrieval_result = {
+                    **retrieval_result,
+                    "results": fallback_chunks,
+                    "fallback": "filename",
+                }
+
+        # ----------------------------------------------------------------
+        # Pure-semantic fallback
+        # ----------------------------------------------------------------
+
+        results = retrieval_result.get("results", [])
+
+        if not results:
+            print("[RETRIEVAL] All thresholds filtered — running pure-semantic fallback (no threshold)")
+            from app.agents.retrieval.semantic_search import search_semantic
+            from app.agents.retrieval.reranker import rerank_results
+
+            raw_query = state.get("query", "")
+            user_id = state.get("user_id")
+
+            semantic_candidates = search_semantic(
+                query=raw_query,
+                k=5,
+                user_id=user_id if user_id else None,
+            )
+            print(f"[RETRIEVAL] Fallback semantic candidates (with user filter): {len(semantic_candidates)}")
+
+            # Backward-compat: docs indexed before user_id was added have user_id=None.
+            # If user-filtered search returns nothing, try without filter.
+            if not semantic_candidates and user_id:
+                print("[RETRIEVAL] Retrying fallback without user_id filter (backward-compat for old docs)")
+                semantic_candidates = search_semantic(
+                    query=raw_query,
+                    k=5,
+                    user_id=None,
+                )
+                print(f"[RETRIEVAL] Fallback candidates (no filter): {len(semantic_candidates)}")
+
+            if semantic_candidates:
+                # Rerank with NO threshold — always return the best we have
+                no_threshold_results = rerank_results(
+                    semantic_candidates,
+                    exact_terms=[],
+                    keywords=[],
+                    query_type="factual",
+                    exact_candidates_found=False,
+                    relevance_threshold=None,
+                )
+
+                if no_threshold_results:
+                    print(f"[RETRIEVAL] Fallback results: {len(no_threshold_results)} — using top 5")
+                    retrieval_result = {
+                        **retrieval_result,
+                        "results": no_threshold_results[:5],
+                        "fallback": "semantic_no_threshold",
+                    }
+                else:
+                    print("[RETRIEVAL] Fallback reranker returned 0 results")
+            else:
+                print("[RETRIEVAL] Fallback semantic search returned 0 candidates — no documents indexed?")
+
+        print(f"[RETRIEVAL] Final result count: {len(retrieval_result.get('results', []))}")
+        print(f"[RETRIEVAL] Fallback used: {retrieval_result.get('fallback', 'none')}\n")
+
         return {
             **state,
             "retrieval_result": retrieval_result,
@@ -676,6 +798,7 @@ def retrieval_node(
                 f"Retrieval failed: {error}"
             ),
         }
+
 
 
 # =====================================================================

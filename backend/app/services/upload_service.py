@@ -13,6 +13,9 @@ from app.services.metadata_service import (
     update_document_status,
     update_job,
 )
+from app.core.models import KnowledgeBaseDocument
+from sqlalchemy.orm import Session
+from app.core.database import SessionLocal
 
 # Create the upload directory if it does not exist.
 UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
@@ -58,7 +61,7 @@ def validate_upload_data(file_data):
 
 
 # Save the uploaded file and create its processing job.
-def create_upload_job(file, file_data, extension):
+def create_upload_job(db: Session, file, file_data, extension, user_id=None):
     document_id = uuid.uuid4().hex
     job_id = uuid.uuid4().hex
 
@@ -79,33 +82,20 @@ def create_upload_job(file, file_data, extension):
             file_data
         )
 
-    uploaded_at = datetime.now(
-        timezone.utc
-    ).isoformat()
+    # Store document metadata in PostgreSQL.
+    db_doc = KnowledgeBaseDocument(
+        id=document_id,
+        user_id=user_id or "",
+        filename=unique_filename,
+        original_filename=file.filename,
+        file_type=extension.lstrip('.'),
+        file_size=len(file_data),
+        status="processing",
+    )
+    db.add(db_doc)
+    db.commit()
 
-    # Store document metadata.
-    document = {
-        "id": document_id,
-        "jobId": job_id,
-        "name": file.filename,
-        "size": len(file_data),
-        "status": "processing",
-        "stage": "uploaded",
-        "progress": 10,
-        "message": "File uploaded successfully.",
-        "uploadedAt": uploaded_at,
-        "chunksCount": 0,
-        "embeddingsCount": 0,
-        "vectorsStored": 0,
-    }
-
-    documents[
-        document_id
-    ] = document
-
-    save_documents()
-
-    # Initialize upload job status.
+    # Initialize upload job status in memory for progress tracking.
     processing_jobs[job_id] = {
         "jobId": job_id,
         "documentId": document_id,
@@ -129,6 +119,7 @@ def process_uploaded_document(
     document_id,
     file_path,
     original_filename,
+    user_id=None,
 ):
     try:
         # Update status before extracting text.
@@ -149,14 +140,27 @@ def process_uploaded_document(
         )
 
         # Extract text from the uploaded document.
-        extracted_text = extract_document(
+        extraction_result = extract_document(
             str(file_path)
         )
 
-        if not extracted_text:
+        if not extraction_result or not isinstance(extraction_result, dict):
             raise ValueError(
                 "No text could be extracted from the file"
             )
+            
+        extracted_text = extraction_result["text"]
+        extracted_images = extraction_result.get("images", [])
+
+        if not extracted_text and not extracted_images:
+            raise ValueError(
+                "No content could be extracted from the file"
+            )
+            
+        # Prepend the original filename to the text to ensure semantic matching works
+        # when users search for specific files by name (especially important for images)
+        if extracted_text:
+            extracted_text = f"File Name: {original_filename}\n\n{extracted_text}"
 
         # Update status before chunk creation.
         update_job(
@@ -174,9 +178,36 @@ def process_uploaded_document(
         )
 
         # Split extracted text into chunks.
-        chunks = chunk_text(
-            extracted_text
-        )
+        chunks = []
+        if extracted_text:
+            from app.rag.chunking import chunk_text
+            chunks = chunk_text(extracted_text)
+
+        metadatas = [
+            {
+                "document_id": document_id,
+                "filename": original_filename,
+                "chunk_index": index,
+                "source_type": "text",
+                "user_id": user_id or "",
+            }
+            for index in range(len(chunks))
+        ]
+
+        # Add embedded image chunks
+        for img in extracted_images:
+            page_info = f"Page {img['metadata']['page_number']} " if "page_number" in img["metadata"] else ""
+            img_content = f"File Name: {original_filename}\n{page_info}Image {img['metadata'].get('image_index', '?')}\n{img['content']}"
+            chunks.append(img_content)
+            
+            img_metadata = img["metadata"]
+            img_metadata.update({
+                "document_id": document_id,
+                "filename": original_filename,
+                "chunk_index": len(chunks) - 1,
+                "user_id": user_id or "",
+            })
+            metadatas.append(img_metadata)
 
         if not chunks:
             raise ValueError(
@@ -249,18 +280,6 @@ def process_uploaded_document(
             embeddings_count=embeddings_count,
         )
 
-        # Create metadata for each document chunk.
-        metadatas = [
-            {
-                "document_id": document_id,
-                "filename": original_filename,
-                "chunk_index": index,
-            }
-            for index in range(
-                len(chunks)
-            )
-        ]
-
         # Update status before storing vectors.
         update_job(
             job_id,
@@ -307,24 +326,15 @@ def process_uploaded_document(
             timezone.utc
         ).isoformat()
 
-        document = documents.get(
-            document_id
-        )
-
-        # Mark the document as successfully indexed.
-        if document:
-            document["status"] = "indexed"
-            document["stage"] = "completed"
-            document["progress"] = 100
-            document["message"] = (
-                "Document processed successfully"
-            )
-            document["chunksCount"] = chunks_count
-            document["embeddingsCount"] = embeddings_count
-            document["vectorsStored"] = vectors_stored
-            document["processedAt"] = completed_at
-
-            save_documents()
+        # Mark the document as successfully indexed in PostgreSQL.
+        db_session = SessionLocal()
+        try:
+            db_doc = db_session.query(KnowledgeBaseDocument).filter(KnowledgeBaseDocument.id == document_id).first()
+            if db_doc:
+                db_doc.status = "completed"
+                db_session.commit()
+        finally:
+            db_session.close()
 
         # Update the final job status.
         update_job(
@@ -359,6 +369,16 @@ def process_uploaded_document(
             message="Document processing failed.",
             error=error_message,
         )
+
+        # Mark the document as failed in PostgreSQL.
+        db_session = SessionLocal()
+        try:
+            db_doc = db_session.query(KnowledgeBaseDocument).filter(KnowledgeBaseDocument.id == document_id).first()
+            if db_doc:
+                db_doc.status = "failed"
+                db_session.commit()
+        finally:
+            db_session.close()
 
     # Remove the temporary uploaded file.
     finally:

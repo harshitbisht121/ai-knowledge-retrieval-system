@@ -12,7 +12,7 @@
  */
 
 const API_BASE_URL = (
-  import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+  import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
 ).replace(/\/$/, '');
 
 let useMock = false;
@@ -232,110 +232,37 @@ export async function logoutUser(token = null) {
 
 
 /* ------------------------------------------------------------------ */
-/* Knowledge Base / Document APIs                                      */
+/* Document APIs                                                       */
 /* ------------------------------------------------------------------ */
 
 
 /*
- * Normalize the backend Knowledge Base document shape into the shape
- * expected by the existing UploadPage/FileUploader UI.
- *
- * Backend:
- *   id, filename, original_filename, file_type, file_size,
- *   status, created_at, updated_at
- *
- * Frontend compatibility:
- *   id, name, size, status(indexed|parsing|failed),
- *   uploadedAt, etc.
+ * Fetch indexed documents.
  */
-function normalizeKnowledgeBaseDocument(document) {
-  if (!document || typeof document !== 'object') {
-    return null;
-  }
-
-  const backendStatus = String(document.status || '').toLowerCase();
-
-  let uiStatus = 'parsing';
-  let stage = 'processing';
-  let progress = 50;
-
-  if (backendStatus === 'completed' || backendStatus === 'indexed') {
-    uiStatus = 'indexed';
-    stage = 'completed';
-    progress = 100;
-  } else if (backendStatus === 'failed') {
-    uiStatus = 'failed';
-    stage = 'failed';
-    progress = 100;
-  }
-
-  return {
-    id: document.id,
-    name:
-      document.original_filename ||
-      document.filename ||
-      'Unnamed document',
-    size: Number(document.file_size || 0),
-    status: uiStatus,
-    stage,
-    progress,
-    message:
-      backendStatus === 'completed' || backendStatus === 'indexed'
-        ? 'Document processed successfully.'
-        : backendStatus === 'failed'
-          ? 'Document processing failed.'
-          : 'Document is being processed.',
-    uploadedAt: document.created_at,
-    updatedAt: document.updated_at,
-    fileType: document.file_type,
-    filename: document.filename,
-    originalFilename: document.original_filename,
-  };
-}
-
-
-/*
- * Fetch documents belonging ONLY to the currently authenticated user.
- */
-export async function getKnowledgeBaseDocuments() {
+export async function getDocuments() {
   if (useMock) {
     return [...mockDocuments];
   }
 
   const response = await fetch(
-    `${API_BASE_URL}/knowledge-base/documents`,
+    `${API_BASE_URL}/documents`,
     {
-      method: 'GET',
       headers: getAuthHeaders(),
     },
   );
 
   const data = await parseResponse(response);
-  const documents = Array.isArray(data)
+
+  return Array.isArray(data)
     ? data
-    : (Array.isArray(data?.documents) ? data.documents : []);
-
-  return documents
-    .map(normalizeKnowledgeBaseDocument)
-    .filter(Boolean);
+    : (data.documents || []);
 }
 
 
 /*
- * Backward-compatible alias used by the existing UploadPage.
+ * Upload and index a document.
  */
-export async function getDocuments() {
-  return getKnowledgeBaseDocuments();
-}
-
-
-/*
- * Upload a document to the user's private Knowledge Base.
- *
- * The backend returns HTTP 202 with document_id and then processes
- * extraction/chunking/embedding in the background.
- */
-export async function uploadKnowledgeBaseDocument(
+export async function uploadDocument(
   file,
   onProgress = () => {},
 ) {
@@ -363,11 +290,11 @@ export async function uploadKnowledgeBaseDocument(
       jobId: doc.id,
       documentId: doc.id,
       filename: file.name,
-      message: doc.message,
     };
   }
 
   const formData = new FormData();
+
   formData.append('file', file);
 
   return new Promise((resolve, reject) => {
@@ -375,7 +302,7 @@ export async function uploadKnowledgeBaseDocument(
 
     xhr.open(
       'POST',
-      `${API_BASE_URL}/knowledge-base/documents`,
+      `${API_BASE_URL}/upload`,
     );
 
     const token = getAuthToken();
@@ -406,13 +333,14 @@ export async function uploadKnowledgeBaseDocument(
       let data = {};
 
       try {
-        data = JSON.parse(xhr.responseText || '{}');
+        data = JSON.parse(xhr.responseText);
       } catch {
-        const error = new Error(
-          'The backend returned an invalid response.',
+        reject(
+          new Error(
+            'The backend returned an invalid response.',
+          ),
         );
-        error.status = xhr.status;
-        reject(error);
+
         return;
       }
 
@@ -420,17 +348,16 @@ export async function uploadKnowledgeBaseDocument(
         xhr.status >= 200 &&
         xhr.status < 300 &&
         data.status === 'accepted' &&
-        data.document_id
+        data.jobId
       ) {
         onProgress(100);
 
         resolve({
           accepted: true,
-          jobId: data.document_id,
-          documentId: data.document_id,
-          filename: file.name,
+          jobId: data.jobId,
+          documentId: data.documentId,
+          filename: data.filename || file.name,
           message: data.message,
-          status: data.status,
         });
 
         return;
@@ -444,6 +371,7 @@ export async function uploadKnowledgeBaseDocument(
       const error = new Error(message);
       error.status = xhr.status;
       error.data = data;
+
       reject(error);
     };
 
@@ -469,135 +397,59 @@ export async function uploadKnowledgeBaseDocument(
 
 
 /*
- * Backward-compatible alias used by the existing FileUploader.
+ * Check document-processing status.
  */
-export async function uploadDocument(
-  file,
-  onProgress = () => {},
-) {
-  return uploadKnowledgeBaseDocument(file, onProgress);
-}
-
-
-/*
- * Check processing status for a Knowledge Base document.
- *
- * The new backend does not expose /upload/status/{jobId}; instead the
- * document itself exposes its current status through GET /knowledge-base.
- */
-export async function getKnowledgeBaseDocument(documentId) {
-  if (!documentId) {
-    throw new Error('documentId is required.');
-  }
-
+export async function getUploadStatus(jobId) {
   if (useMock) {
-    const document = mockDocuments.find(
-      (item) => item.id === documentId,
-    );
-
-    return document || null;
+    return {
+      jobId,
+      documentId: jobId,
+      filename: 'Mock document',
+      status: 'completed',
+      stage: 'completed',
+      progress: 100,
+      message: 'Document processed successfully.',
+      chunksCount: 0,
+      embeddingsCount: 0,
+      vectorsStored: 0,
+      error: null,
+    };
   }
 
   const response = await fetch(
-    `${API_BASE_URL}/knowledge-base/documents/${encodeURIComponent(documentId)}`,
+    `${API_BASE_URL}/upload/status/${encodeURIComponent(jobId)}`,
     {
-      method: 'GET',
       headers: getAuthHeaders(),
     },
   );
 
-  const data = await parseResponse(response);
-  return normalizeKnowledgeBaseDocument(data);
+  return parseResponse(response);
 }
 
 
 /*
- * Backward-compatible status shape for the existing FileUploader.
+ * Delete an indexed document.
  */
-export async function getUploadStatus(jobId) {
-  const document = await getKnowledgeBaseDocument(jobId);
+export async function deleteDocument(id) {
+  if (useMock) {
+    const index = mockDocuments.findIndex(
+      (doc) => doc.id === id,
+    );
 
-  if (!document) {
+    if (index >= 0) {
+      mockDocuments.splice(index, 1);
+    }
+
     return {
-      jobId,
-      documentId: jobId,
-      filename: '',
-      status: 'failed',
-      stage: 'completed',
-      progress: 100,
-      message: 'Document not found.',
-      error: 'Document not found.',
+      status: 'success',
     };
   }
 
-  const completed = document.status === 'indexed';
-  const failed = document.status === 'failed';
-
-  /*
-   * The current Knowledge Base backend exposes only:
-   *   processing / completed / failed
-   *
-   * FileUploader.jsx, however, expects one of:
-   *   uploaded / extracting / chunking / embedding / storing / completed
-   *
-   * While processing, use "extracting" as the active stage so the
-   * existing FileUploader stage UI continues to work.
-   */
-  return {
-    jobId: document.id,
-    documentId: document.id,
-    filename: document.name,
-
-    status: completed
-      ? 'completed'
-      : failed
-        ? 'failed'
-        : 'processing',
-
-    stage: completed
-      ? 'completed'
-      : failed
-        ? 'completed'
-        : 'extracting',
-
-    progress: completed || failed ? 100 : 50,
-
-    message: document.message,
-
-    error: failed
-      ? document.message
-      : null,
-  };
-}
-
-/*
- * Backward-compatible alias used by the existing UploadPage.
- */
-export async function deleteDocument(id) {
-  return deleteKnowledgeBaseDocument(id);
-}
-
-
-/*
- * Standalone semantic search against the authenticated user's private KB.
- */
-export async function searchKnowledgeBase(
-  query,
-  k = 3,
-) {
-  if (!query || !query.trim()) {
-    throw new Error('Knowledge Base search query cannot be empty.');
-  }
-
   const response = await fetch(
-    `${API_BASE_URL}/knowledge-base/search`,
+    `${API_BASE_URL}/documents/${encodeURIComponent(id)}`,
     {
-      method: 'POST',
-      headers: getAuthHeaders(true),
-      body: JSON.stringify({
-        query: query.trim(),
-        k,
-      }),
+      method: 'DELETE',
+      headers: getAuthHeaders(),
     },
   );
 
@@ -887,5 +739,20 @@ export async function sendChatMessage(
     );
   }
 
+  return data;
+}
+
+export async function analyzeImage(imageFile, question) {
+  const formData = new FormData();
+  formData.append('image', imageFile);
+  formData.append('question', question);
+
+  const response = await fetch(`${API_BASE_URL}/vlm/analyze`, {
+    method: 'POST',
+    // Do NOT set Content-Type header for FormData; fetch will set it automatically with the correct boundary
+    body: formData,
+  });
+
+  const data = await parseResponse(response);
   return data;
 }

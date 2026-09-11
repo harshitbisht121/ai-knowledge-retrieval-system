@@ -315,7 +315,102 @@ def format_results(
     }
 
 
+def search_by_filename(filename_query: str, raw_query: str = None, user_id: str = None) -> list[dict]:
+    """
+    Retrieve all chunks belonging to a document by its original filename.
+
+    Used as a fallback when semantic search scores are too low — e.g.
+    when the user asks about a specific file by name.
+    """
+    if not filename_query or not filename_query.strip():
+        return []
+
+    query_lower = filename_query.strip().lower()
+
+    where_clause = None
+    if user_id:
+        where_clause = {"user_id": user_id}
+
+    stored_data = collection.get(
+        where=where_clause,
+        include=["documents", "metadatas", "embeddings"]
+    )
+
+    documents = stored_data.get("documents", []) or []
+    metadatas = stored_data.get("metadatas", []) or []
+    embeddings = stored_data.get("embeddings", [])
+    if embeddings is None:
+        embeddings = []
+    ids = stored_data.get("ids", []) or []
+
+    results = []
+    
+    import os
+    
+    # If we have a raw_query, we can embed it and calculate actual distances
+    query_embedding = None
+    if raw_query:
+        try:
+            from app.rag.embedding import load_embedding_model, embed_chunks
+            model = load_embedding_model()
+            query_embedding = embed_chunks(model, [raw_query])[0]
+        except Exception as e:
+            print(f"Failed to embed raw query for filename fallback: {e}")
+
+    # To convert distance to relevance safely
+    from app.agents.retrieval.reranker import semantic_score
+
+    for index, content in enumerate(documents):
+        meta = metadatas[index] if index < len(metadatas) else {}
+        stored_name = str(meta.get("filename", ""))
+        stored_name_lower = stored_name.lower()
+        
+        # Remove extension for flexible matching
+        name_without_ext = os.path.splitext(stored_name_lower)[0]
+
+        if (
+            query_lower in stored_name_lower
+            or stored_name_lower in query_lower
+            or query_lower in name_without_ext
+            or name_without_ext in query_lower
+        ):
+            # Calculate actual L2 distance if query embedding is available
+            distance = None
+            relevance = 0.0
+            
+            if query_embedding is not None and index < len(embeddings):
+                chunk_embedding = embeddings[index]
+                if chunk_embedding is not None:
+                    # L2 distance (which is what ChromaDB uses by default)
+                    import numpy as np
+                    distance = float(np.sum((np.array(query_embedding) - np.array(chunk_embedding)) ** 2))
+                    relevance = semantic_score(distance)
+                    
+                    print(f"\n--- DEBUG: RAW SCORE ---")
+                    print(f"Query: {raw_query}")
+                    print(f"Document: {stored_name}")
+                    print(f"Raw retrieval score: {distance}")
+                    print(f"Score type: distance")
+                    print(f"Metric: L2 distance")
+                    print(f"Calculated Relevance: {relevance}")
+                    print(f"------------------------\n")
+
+            results.append({
+                "chunk_id": ids[index] if index < len(ids) else f"fn_{index}",
+                "content": content,
+                "metadata": meta or {},
+                "distance": distance,
+                "relevance_score": relevance,
+                "semantic_score": relevance,
+                "matched_terms": [stored_name],
+            })
+
+    return results
+
+
+
 if __name__ == "__main__":
+
     # Run a simple storage check when this file is executed directly.
     print("ChromaDB service check")
     print(f"Database path: {CHROMA_DB_PATH}")

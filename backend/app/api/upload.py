@@ -3,6 +3,7 @@ from pathlib import Path
 from fastapi import (
     APIRouter,
     BackgroundTasks,
+    Depends,
     File,
     HTTPException,
     UploadFile,
@@ -19,6 +20,11 @@ from app.services.upload_service import (
     validate_upload_filename,
 )
 
+from app.core.database import get_db
+from sqlalchemy.orm import Session
+from app.dependencies.auth import get_current_user
+from app.core.models import User
+
 # Router for document upload endpoints.
 router = APIRouter()
 
@@ -28,6 +34,8 @@ router = APIRouter()
 async def upload_file(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
 
     # Validate uploaded filename.
@@ -59,9 +67,11 @@ async def upload_file(
 
         # Save the uploaded file and create a processing job.
         document_id, job_id, file_path = create_upload_job(
+            db,
             file,
             file_data,
             extension,
+            user_id=str(current_user.id),
         )
 
         # Process the document in the background.
@@ -71,6 +81,7 @@ async def upload_file(
             document_id,
             file_path,
             file.filename,
+            str(current_user.id),
         )
 
         return {

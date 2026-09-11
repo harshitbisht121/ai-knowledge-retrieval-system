@@ -106,13 +106,13 @@ export default function ChatPage() {
     (transcript) => {
       setInputValue(
         startTextRef.current +
-          (
-            startTextRef.current &&
+        (
+          startTextRef.current &&
             transcript
-              ? ' '
-              : ''
-          ) +
-          transcript
+            ? ' '
+            : ''
+        ) +
+        transcript
       );
     };
 
@@ -392,8 +392,8 @@ export default function ChatPage() {
        */
       setSelectedSource(
         matchingResult ||
-          results[0] ||
-          null
+        results[0] ||
+        null
       );
     };
 
@@ -489,7 +489,7 @@ export default function ChatPage() {
 
         setConversationError(
           error?.message ||
-            'Unable to load this conversation.'
+          'Unable to load this conversation.'
         );
 
 
@@ -600,7 +600,7 @@ export default function ChatPage() {
 
         setConversationError(
           error?.message ||
-            'Unable to load your conversation history.'
+          'Unable to load your conversation history.'
         );
 
 
@@ -788,7 +788,7 @@ export default function ChatPage() {
 
         setConversationError(
           error?.message ||
-            'Unable to delete this conversation. Please try again.'
+          'Unable to delete this conversation. Please try again.'
         );
 
       } finally {
@@ -1012,7 +1012,7 @@ export default function ChatPage() {
           (message) => ({
             role:
               message.sender ===
-              'user'
+                'user'
                 ? 'user'
                 : 'assistant',
 
@@ -1229,8 +1229,8 @@ export default function ChatPage() {
 
           setSelectedSource(
             selected ||
-              results[0] ||
-              null
+            results[0] ||
+            null
           );
 
         } else {
@@ -1611,9 +1611,8 @@ export default function ChatPage() {
                       }
                     >
                       {conversation.title?.trim() ||
-                        `Conversation ${
-                          conversations.length -
-                          index
+                        `Conversation ${conversations.length -
+                        index
                         }`}
                     </option>
 
@@ -1655,9 +1654,9 @@ export default function ChatPage() {
                   color: 'var(--accent-rose)',
                   cursor:
                     loadingConversation ||
-                    isTyping ||
-                    !conversationId ||
-                    deletingConversationId
+                      isTyping ||
+                      !conversationId ||
+                      deletingConversationId
                       ? 'not-allowed'
                       : 'pointer',
                   display: 'flex',
@@ -1665,9 +1664,9 @@ export default function ChatPage() {
                   justifyContent: 'center',
                   opacity:
                     loadingConversation ||
-                    isTyping ||
-                    !conversationId ||
-                    deletingConversationId
+                      isTyping ||
+                      !conversationId ||
+                      deletingConversationId
                       ? 0.5
                       : 1,
                 }}
@@ -2183,11 +2182,10 @@ export default function ChatPage() {
                 loadingConversation ||
                 isTyping
               }
-              className={`btn ${
-                isListening
+              className={`btn ${isListening
                   ? 'btn-secondary'
                   : ''
-              }`}
+                }`}
               title={
                 isListening
                   ? 'Stop listening'
@@ -2737,7 +2735,7 @@ export default function ChatPage() {
                       {Math.round(
                         Number(
                           selectedSource?.relevance_score ||
-                            0
+                          0
                         ) * 100
                       )}
                       %
@@ -2834,7 +2832,7 @@ export default function ChatPage() {
                   <strong>
                     {Number(
                       selectedSource?.semantic_score ||
-                        0
+                      0
                     ).toFixed(3)}
                   </strong>
                 </span>
@@ -2847,7 +2845,7 @@ export default function ChatPage() {
                     {
                       Object.keys(
                         selectedSource?.metadata ||
-                          {}
+                        {}
                       ).length
                     }{' '}
                     fields
@@ -2864,182 +2862,182 @@ export default function ChatPage() {
               {currentResults.length >
                 0 && (
 
-                <div
-                  style={{
-                    marginTop:
-                      '24px',
-                  }}
-                >
-
-                  <h4
-                    style={{
-                      fontSize:
-                        '0.85rem',
-                      fontWeight:
-                        600,
-                      color:
-                        'var(--text-secondary)',
-                      marginBottom:
-                        '10px',
-                      textTransform:
-                        'uppercase',
-                      letterSpacing:
-                        '0.05em',
-                    }}
-                  >
-                    All Matches (
-                    {
-                      currentResults.length
-                    }
-                    )
-                  </h4>
-
-
                   <div
                     style={{
-                      display:
-                        'flex',
-                      flexDirection:
-                        'column',
-                      gap:
-                        '8px',
+                      marginTop:
+                        '24px',
                     }}
                   >
 
-                    {currentResults.map(
-                      (
-                        source,
-                        index
-                      ) => {
-
-                        const sourceId =
-                          source?.chunk_id ||
-                          source?.id ||
-                          source?.source ||
-                          index;
-
-
-                        const selectedId =
-                          selectedSource?.chunk_id ||
-                          selectedSource?.id ||
-                          selectedSource?.source ||
-                          null;
-
-
-                        const isSelected =
-                          String(
-                            selectedId
-                          ) ===
-                          String(
-                            sourceId
-                          );
+                    <h4
+                      style={{
+                        fontSize:
+                          '0.85rem',
+                        fontWeight:
+                          600,
+                        color:
+                          'var(--text-secondary)',
+                        marginBottom:
+                          '10px',
+                        textTransform:
+                          'uppercase',
+                        letterSpacing:
+                          '0.05em',
+                      }}
+                    >
+                      All Matches (
+                      {
+                        currentResults.length
+                      }
+                      )
+                    </h4>
 
 
-                        return (
-                          <div
-                            key={
+                    <div
+                      style={{
+                        display:
+                          'flex',
+                        flexDirection:
+                          'column',
+                        gap:
+                          '8px',
+                      }}
+                    >
+
+                      {currentResults.map(
+                        (
+                          source,
+                          index
+                        ) => {
+
+                          const sourceId =
+                            source?.chunk_id ||
+                            source?.id ||
+                            source?.source ||
+                            index;
+
+
+                          const selectedId =
+                            selectedSource?.chunk_id ||
+                            selectedSource?.id ||
+                            selectedSource?.source ||
+                            null;
+
+
+                          const isSelected =
+                            String(
+                              selectedId
+                            ) ===
+                            String(
                               sourceId
-                            }
-                            onClick={() =>
-                              setSelectedSource(
-                                source
-                              )
-                            }
-                            style={{
-                              padding:
-                                '10px 12px',
-                              borderRadius:
-                                '8px',
-                              border:
-                                '1px solid ' +
-                                (
-                                  isSelected
-                                    ? 'var(--accent-purple)'
-                                    : 'var(--border-color)'
-                                ),
-                              background:
-                                isSelected
-                                  ? 'hsla(263, 85%, 65%, 0.08)'
-                                  : 'transparent',
-                              cursor:
-                                'pointer',
-                              display:
-                                'flex',
-                              justifyContent:
-                                'space-between',
-                              alignItems:
-                                'center',
-                              fontSize:
-                                '0.75rem',
-                              gap:
-                                '10px',
-                            }}
-                          >
+                            );
 
-                            <span
+
+                          return (
+                            <div
+                              key={
+                                sourceId
+                              }
+                              onClick={() =>
+                                setSelectedSource(
+                                  source
+                                )
+                              }
                               style={{
-                                overflow:
-                                  'hidden',
-                                textOverflow:
-                                  'ellipsis',
-                                whiteSpace:
-                                  'nowrap',
-                                maxWidth:
-                                  '210px',
+                                padding:
+                                  '10px 12px',
+                                borderRadius:
+                                  '8px',
+                                border:
+                                  '1px solid ' +
+                                  (
+                                    isSelected
+                                      ? 'var(--accent-purple)'
+                                      : 'var(--border-color)'
+                                  ),
+                                background:
+                                  isSelected
+                                    ? 'hsla(263, 85%, 65%, 0.08)'
+                                    : 'transparent',
+                                cursor:
+                                  'pointer',
+                                display:
+                                  'flex',
+                                justifyContent:
+                                  'space-between',
+                                alignItems:
+                                  'center',
+                                fontSize:
+                                  '0.75rem',
+                                gap:
+                                  '10px',
                               }}
                             >
-
-                              {
-                                source?.metadata?.filename ||
-                                source?.filename ||
-                                'Retrieved document'
-                              }
 
                               <span
                                 style={{
-                                  color:
-                                    'var(--text-muted)',
+                                  overflow:
+                                    'hidden',
+                                  textOverflow:
+                                    'ellipsis',
+                                  whiteSpace:
+                                    'nowrap',
+                                  maxWidth:
+                                    '210px',
                                 }}
                               >
-                                {' '}
-                                [
+
                                 {
-                                  source?.chunk_id ||
-                                  source?.id ||
-                                  'chunk'
+                                  source?.metadata?.filename ||
+                                  source?.filename ||
+                                  'Retrieved document'
                                 }
-                                ]
+
+                                <span
+                                  style={{
+                                    color:
+                                      'var(--text-muted)',
+                                  }}
+                                >
+                                  {' '}
+                                  [
+                                  {
+                                    source?.chunk_id ||
+                                    source?.id ||
+                                    'chunk'
+                                  }
+                                  ]
+                                </span>
+
                               </span>
 
-                            </span>
 
-
-                            <span
-                              style={{
-                                fontWeight:
-                                  'bold',
-                                color:
-                                  'var(--accent-emerald)',
-                              }}
-                            >
-                              {Math.round(
-                                Number(
-                                  source?.relevance_score ||
+                              <span
+                                style={{
+                                  fontWeight:
+                                    'bold',
+                                  color:
+                                    'var(--accent-emerald)',
+                                }}
+                              >
+                                {Math.round(
+                                  Number(
+                                    source?.relevance_score ||
                                     0
-                                ) * 100
-                              )}
-                              %
-                            </span>
+                                  ) * 100
+                                )}
+                                %
+                              </span>
 
-                          </div>
-                        );
-                      }
-                    )}
+                            </div>
+                          );
+                        }
+                      )}
+
+                    </div>
 
                   </div>
-
-                </div>
-              )}
+                )}
 
             </div>
           )}
