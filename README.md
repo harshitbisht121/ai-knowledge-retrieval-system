@@ -1,8 +1,8 @@
 # AI-Based Knowledge Retrieval Platform with Query Resolution System
 
-An AI-powered Retrieval-Augmented Generation (RAG) platform that enables users to upload knowledge-base documents and query them using natural language. The project combines a multi-agent LangGraph workflow with persistent PostgreSQL conversation memory, clarification handling, browser-based voice input/output, response transparency, authenticated user workspaces, and direct LLM handling for general-knowledge/conversational questions. Milestone 4 adds query analytics, knowledge-gap detection, authenticated user-specific knowledge bases, user-scoped ChromaDB retrieval, and dedicated Analytics and Knowledge Gap dashboards.
+An AI-powered Retrieval-Augmented Generation (RAG) platform that enables users to upload knowledge-base documents and query them using natural language. The project combines a multi-agent LangGraph workflow with persistent PostgreSQL conversation memory, clarification handling, browser-based voice input/output, response transparency, authenticated user workspaces, and direct LLM handling for general-knowledge/conversational questions. Milestone 4 adds query analytics, domain-agnostic common query-theme detection, knowledge-gap detection, authenticated user-specific knowledge bases, user-scoped ChromaDB retrieval, and dedicated Analytics and Knowledge Gap dashboards.
 
-> **Detailed Documentation:** See **`PROJECT_GUIDE.md`** for the complete architecture, workflow diagrams, backend/frontend design, API documentation, Milestone 1, Milestone 2 and Milestone 3 implementation details, testing flow, and development guidelines.
+> **Detailed Documentation:** See **`PROJECT_GUIDE.md`** for the complete architecture, workflow diagrams, backend/frontend design, API documentation, Milestones 1–4 implementation details, semantic query-theme analytics, testing flow, and development guidelines.
 
 ## Features
 
@@ -28,6 +28,7 @@ An AI-powered Retrieval-Augmented Generation (RAG) platform that enables users t
 - 🌐 General-knowledge and conversational queries answered directly by the LLM
 - 🧩 User-facing upload UI hides internal chunk/embedding/vector counts while processing continues normally
 - 📊 Query Analytics Dashboard with real backend query totals, answer rate, confidence, response time and query-type distribution
+- 🧩 Domain-agnostic Common Query Themes using a dedicated analytics-only embedding model, with theme-level knowledge-gap signals
 - ⚠️ Knowledge Gap Detection with backend-detected unanswered, zero-retrieval and low-confidence retrieval records
 - 🔐 User-specific Knowledge Base stored with authenticated `user_id` ownership and ChromaDB user-scoped retrieval
 - 🗂️ User-specific knowledge-base upload/list/read/delete/search APIs
@@ -61,7 +62,7 @@ An AI-powered Retrieval-Augmented Generation (RAG) platform that enables users t
 - LangGraph
 - langchain-groq
 - Groq LLM
-- Sentence Transformers (`all-MiniLM-L6-v2`)
+- Sentence Transformers (`all-MiniLM-L6-v2`) for RAG and the separate analytics theme-embedding module
 - ChromaDB
 - Retrieval-Augmented Generation (RAG)
 
@@ -85,7 +86,10 @@ AI-Based Knowledge Retrieval Platform with Query Resolution System/
 ├── backend/
 │   ├── alembic/
 │   │   ├── versions/
-│   │   │   └── 0f628c51b660_initial_schema.py
+│   │   │   ├── 0f628c51b660_initial_schema.py
+│   │   │   ├── 7c91f9e3a2b4_milestone4_analytics_and_knowledge_gaps.py
+│   │   │   ├── 5a7a6c2b7c8f_add_user_specific_knowledge_base.py
+│   │   │   └── e9b7e767c397_add_user_id_to_knowledge_gaps.py
 │   │   ├── env.py
 │   │   ├── script.py.mako
 │   │   └── README
@@ -103,12 +107,19 @@ AI-Based Knowledge Retrieval Platform with Query Resolution System/
 │   │   │   ├── models.py
 │   │   │   ├── schemas.py
 │   │   │   ├── service.py
+│   │   │   ├── theme_embedding.py
+│   │   │   ├── theme_service.py
 │   │   │   └── router.py
 │   │   ├── knowledge_gaps/
 │   │   │   ├── models.py
 │   │   │   ├── schemas.py
 │   │   │   ├── service.py
 │   │   │   └── router.py
+│   │   ├── admin/
+│   │   │   ├── __init__.py
+│   │   │   ├── router.py
+│   │   │   ├── schemas.py
+│   │   │   └── service.py
 │   │   ├── core/
 │   │   │   ├── config.py
 │   │   │   ├── llm.py
@@ -668,7 +679,10 @@ backend/
 └── alembic/
     ├── env.py
     └── versions/
-        └── 0f628c51b660_initial_schema.py
+        ├── 0f628c51b660_initial_schema.py
+        ├── 7c91f9e3a2b4_milestone4_analytics_and_knowledge_gaps.py
+        ├── 5a7a6c2b7c8f_add_user_specific_knowledge_base.py
+        └── e9b7e767c397_add_user_id_to_knowledge_gaps.py
 ```
 
 `env.py` loads the existing `backend/.env`; there is no separate `.env` inside the `alembic/` directory.
@@ -698,13 +712,24 @@ No manual table creation and no personal data import are required.
 | GET | `/documents` | List indexed documents |
 | POST | `/upload` | Upload a document |
 | GET | `/upload/status/{job_id}` | Check upload status |
-| POST | `/query` | Run the Milestone 3 query workflow |
+| POST | `/query` | Run the M2/M3 query workflow and record M4 analytics/gap telemetry |
 | DELETE | `/documents/{document_id}` | Delete an indexed document |
 | POST | `/conversations` | Create an authenticated user's conversation |
 | GET | `/conversations` | List the authenticated user's conversations |
 | GET | `/conversations/{conversation_id}` | Get an owned conversation and messages |
 | GET | `/conversations/{conversation_id}/context` | Get owned conversation memory context |
 | DELETE | `/conversations/{conversation_id}` | Delete an owned conversation |
+| POST | `/analytics/log` | Persist one authenticated query analytics event |
+| GET | `/analytics/overview` | Return aggregate query analytics metrics |
+| GET | `/analytics/query-types` | Return query counts grouped by query type |
+| GET | `/analytics/query-themes` | Return authenticated user's domain-agnostic semantic query themes and theme-level gap signals |
+| GET | `/admin/overview` | Return system-wide Admin Dashboard statistics; requires Admin role |
+| GET | `/admin/users` | Return all users with document/query usage summary; requires Admin role |
+| GET | `/admin/users/{user_id}` | Return one user’s details and document list; requires Admin role |
+| GET | `/admin/documents` | Return all documents system-wide with owner information; requires Admin role |
+| DELETE | `/admin/documents/{document_id}` | Delete any user's document as an Admin |
+| GET | `/admin/analytics/queries-per-user` | Return query counts grouped by user; requires Admin role |
+| GET | `/admin/analytics/frequent-queries?limit=10` | Return the most frequently occurring queries; requires Admin role |
 
 ### `/query` normal request
 
@@ -901,6 +926,40 @@ average_response_time
 
 Query types are aggregated from actual stored analytics records.
 
+#### Common Query Themes
+
+The Analytics module also detects recurring semantic query themes from the authenticated user's `QueryAnalytics` records.
+
+```text
+QueryAnalytics
+    ↓
+analytics-only all-MiniLM-L6-v2
+    ↓
+semantic/lexical clustering
+    ↓
+second-pass centroid merging
+    ↓
+domain-agnostic theme labels
+    ↓
+theme-level unanswered/low-confidence metrics
+    ↓
+gap score
+```
+
+This feature is intentionally separate from RAG retrieval. The RAG embedding module and the analytics theme-embedding module currently use the same `all-MiniLM-L6-v2` model, but they are separate code paths so the RAG embedding model can be optimized or replaced independently later.
+
+The theme detector contains no predefined domain-topic list. It derives themes from the queries it observes and filters trivial conversational inputs such as `yes`, `ok`, `thanks`, and `hello`.
+
+Theme analysis does not call Groq or another LLM, so refreshing `/analytics/query-themes` does not consume additional Groq API requests.
+
+Endpoint:
+
+```text
+GET /analytics/query-themes
+```
+
+Theme-level knowledge-gap status requires at least two meaningful queries in the theme and a gap score at or above the configured threshold. One-off problematic queries remain handled by the existing Knowledge Gap Detection module.
+
 #### Knowledge Gap Detection
 
 Knowledge gaps are detected for retrieval queries when the implemented rules identify conditions such as:
@@ -998,7 +1057,7 @@ Analytics
 Knowledge Gaps
 ```
 
-The Analytics dashboard is connected to the actual backend endpoints and does not use the teammate's earlier synthetic local analytics dataset.
+The Analytics dashboard is connected to the actual backend endpoints and does not use the teammate's earlier synthetic local analytics dataset. It also renders Common Query Themes from the authenticated user's real analytics records.
 
 The Query Type Distribution UI displays values in the form:
 
@@ -1010,7 +1069,7 @@ The Query Type Distribution UI displays values in the form:
 
 ### M4 Runtime Validation
 
-The following runtime sequence validates the integration:
+The following runtime sequence validates the integration, including common query-theme analytics:
 
 ```text
 Login
@@ -1054,6 +1113,8 @@ The applied migration chain is:
 7c91f9e3a2b4_milestone4_analytics_and_knowledge_gaps
       ↓
 5a7a6c2b7c8f_add_user_specific_knowledge_base_
+      ↓
+e9b7e767c397_add_user_id_to_knowledge_gaps
 ```
 
 Run:
@@ -1070,7 +1131,10 @@ The M4 schema adds:
 query_analytics
 knowledge_gaps
 knowledge_base_documents
+knowledge_gaps.user_id
 ```
+
+The `e9b7e767c397_add_user_id_to_knowledge_gaps.py` migration adds the missing foreign-key relationship from `knowledge_gaps.user_id` to `users.id` with `ON DELETE CASCADE`, completing user ownership support for knowledge-gap records.
 
 while preserving the existing M3 tables.
 
@@ -1080,6 +1144,8 @@ while preserving the existing M3 tables.
 Query analytics logging                ✅ implemented
 Unanswered tracking                   ✅ implemented
 Low-confidence tracking               ✅ implemented
+Common query-theme detection           ✅ implemented
+Theme-level gap scoring                ✅ implemented
 Knowledge-gap detection               ✅ implemented
 Analytics dashboard                   ✅ integrated
 Knowledge-gap dashboard               ✅ integrated
@@ -1091,6 +1157,234 @@ Voice reliability testing              ⚠ requires recorded evaluation evidence
 Final documentation/demo              ✅ implementation documented; demo evidence remains delivery work
 ```
 
+
+## Admin Dashboard — Admin Management & System Analytics
+
+The Admin Dashboard extends the authenticated QueryNest workspace with a dedicated, role-protected administration layer. It is implemented in `backend/app/admin/` and is registered through `app.admin.router` in `backend/app/main.py`.
+
+Only authenticated users whose database `role` is exactly `Admin` can access the Admin API. The Admin router reuses the existing JWT authentication dependency and adds an Admin-role check. Non-admin users receive `403 Forbidden`; missing, invalid, or expired authentication is rejected by the existing JWT dependency.
+
+### Admin Backend Components
+
+```text
+backend/app/admin/
+├── __init__.py
+├── router.py
+├── schemas.py
+└── service.py
+```
+
+### Admin API Endpoints
+
+```text
+GET    /admin/overview
+GET    /admin/users
+GET    /admin/users/{user_id}
+GET    /admin/documents
+DELETE /admin/documents/{document_id}
+GET    /admin/analytics/queries-per-user
+GET    /admin/analytics/frequent-queries?limit=10
+```
+
+Every request must include:
+
+```http
+Authorization: Bearer <JWT>
+```
+
+and the JWT must belong to a user with:
+
+```text
+role = Admin
+```
+
+#### `GET /admin/overview`
+
+Returns system-wide statistics for the Admin Dashboard:
+
+```json
+{
+  "total_users": 0,
+  "total_documents": 0,
+  "total_queries": 0,
+  "answered_queries": 0,
+  "unanswered_queries": 0,
+  "average_confidence": null,
+  "average_response_time": null,
+  "total_knowledge_gaps": 0,
+  "most_common_gap_reason": null
+}
+```
+
+The statistics are system-wide and include activity from all users, including an Admin account when that account uses the normal user-facing upload and chatbot functionality.
+
+#### `GET /admin/users`
+
+Returns all users with usage summary:
+
+```json
+{
+  "users": [
+    {
+      "id": "...",
+      "email": "...",
+      "full_name": "...",
+      "role": "...",
+      "document_count": 0,
+      "query_count": 0,
+      "created_at": "..."
+    }
+  ],
+  "total_users": 1
+}
+```
+
+#### `GET /admin/users/{user_id}`
+
+Returns detailed information for one user, including that user's document list:
+
+```json
+{
+  "id": "...",
+  "email": "...",
+  "full_name": "...",
+  "role": "...",
+  "created_at": "...",
+  "document_count": 0,
+  "query_count": 0,
+  "documents": [
+    {
+      "id": "...",
+      "filename": "...",
+      "file_type": "...",
+      "status": "...",
+      "created_at": "..."
+    }
+  ]
+}
+```
+
+#### `GET /admin/documents`
+
+Returns all documents system-wide with owner information:
+
+```json
+[
+  {
+    "id": "...",
+    "filename": "...",
+    "original_filename": "...",
+    "file_type": "...",
+    "file_size": 0,
+    "status": "...",
+    "created_at": "...",
+    "owner_id": "...",
+    "owner_email": "..."
+  }
+]
+```
+
+#### `DELETE /admin/documents/{document_id}`
+
+Provides an Admin override for deleting any user's document. A successful deletion returns `204 No Content`; a missing document returns `404 Not Found`.
+
+The frontend should confirm destructive actions before calling the endpoint and refresh the document list after a successful deletion.
+
+#### `GET /admin/analytics/queries-per-user`
+
+Returns query counts grouped by user:
+
+```json
+[
+  {
+    "user_id": "...",
+    "email": "...",
+    "query_count": 0
+  }
+]
+```
+
+#### `GET /admin/analytics/frequent-queries?limit=10`
+
+Returns the most frequently occurring queries:
+
+```json
+[
+  {
+    "query_text": "...",
+    "occurrence_count": 0
+  }
+]
+```
+
+The `limit` query parameter defaults to `10` in the frontend contract.
+
+### Suggested Admin Frontend Pages
+
+The Admin frontend should provide:
+
+```text
+/admin
+/admin/users
+/admin/users/:userId
+/admin/documents
+/admin/analytics
+```
+
+The frontend page routes are separate from the backend API routes. A suggested navigation structure is:
+
+```text
+Admin
+├── Overview
+├── Users
+│   └── User Detail
+├── Documents
+└── Analytics
+```
+
+The Admin navigation should only be visible when the authenticated profile has `role === "Admin"`. Hiding the navigation is only a UI concern; backend authorization remains the actual security boundary.
+
+### Admin Dashboard UI Requirements
+
+The Overview page should display:
+
+- Total Users
+- Total Documents
+- Total Queries
+- Answered Queries
+- Unanswered Queries
+- Average Confidence
+- Average Response Time
+- Total Knowledge Gaps
+- Most Common Gap Reason
+
+The Users page should display name, email, role, document count, query count and creation date, with a drill-down to user detail.
+
+The User Detail page should display user information, usage counts and the user's documents.
+
+The Documents page should display filename, file type, size, status, owner and creation date, with an Admin delete action.
+
+The Analytics page should provide at least a queries-per-user visualization and a frequent-queries table/list.
+
+### Admin Account Behavior
+
+An Admin is still an authenticated `User` record. The `Admin` role adds access to the Admin API; it does not automatically remove the existing user-facing chat, upload or workspace functionality.
+
+If an Admin account uploads a document or asks a chatbot question through the normal frontend, those records remain associated with that Admin user's `user_id` and are included in system-wide Admin statistics and per-user Admin summaries.
+
+### Admin API Validation
+
+The Admin backend should be tested with:
+
+```text
+Admin user + valid JWT    → 200 for allowed GET requests
+Normal user + valid JWT   → 403 Forbidden
+Missing/invalid JWT       → 401 Unauthorized
+Missing document          → 404 for document deletion
+Successful deletion       → 204 No Content
+```
+
+---
 
 ## Milestone 3 Validation
 
@@ -1150,9 +1444,12 @@ Verify that `frontend/src/services/analytics.js` calls the real endpoints:
 ```text
 /analytics/overview
 /analytics/query-types
+/analytics/query-themes
 ```
 
 Do not restore the earlier local mock analytics fallback.
+
+`/analytics/query-themes` is computed from the authenticated user's stored query analytics and the dedicated analytics embedding model. It does not call Groq. A new user with no meaningful query history can legitimately see an empty theme section.
 
 ### Knowledge Gaps page shows unsupported/mock values
 Verify that the frontend is using:

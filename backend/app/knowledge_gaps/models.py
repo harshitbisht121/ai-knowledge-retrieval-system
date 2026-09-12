@@ -78,6 +78,7 @@ class KnowledgeGap(Base):
         DateTime,
         server_default=func.now(),
         nullable=False,
+        index=True,
     )
 
     updated_at = Column(
@@ -85,4 +86,5 @@ class KnowledgeGap(Base):
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,
+        index=True,
     )
