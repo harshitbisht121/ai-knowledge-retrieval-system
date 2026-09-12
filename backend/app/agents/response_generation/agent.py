@@ -471,6 +471,7 @@ def generate_response(
     # Build grounded prompt
     # ---------------------------------------------------------------
 
+    print(f"[CHAT] Query entering LLM: {question}")
     prompt = build_prompt(
         question,
         valid_chunks,

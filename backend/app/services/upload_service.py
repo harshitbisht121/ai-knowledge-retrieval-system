@@ -1,5 +1,8 @@
+import logging
 from datetime import datetime, timezone
 import uuid
+
+logger = logging.getLogger(__name__)
 
 from app.core.config import ALLOWED_EXTENSIONS, MAX_FILE_SIZE, UPLOAD_FOLDER
 from app.rag.chromadb_service import add_documents
@@ -139,6 +142,9 @@ def process_uploaded_document(
             message="Extracting text from document...",
         )
 
+        import time
+        process_start_time = time.perf_counter()
+        
         # Extract text from the uploaded document.
         extraction_result = extract_document(
             str(file_path)
@@ -179,9 +185,12 @@ def process_uploaded_document(
 
         # Split extracted text into chunks.
         chunks = []
+        chunking_start = time.perf_counter()
         if extracted_text:
             from app.rag.chunking import chunk_text
             chunks = chunk_text(extracted_text)
+        chunking_time = time.perf_counter() - chunking_start
+        print(f"[RAG] Chunking time: {chunking_time:.2f}s")
 
         metadatas = [
             {
@@ -195,19 +204,27 @@ def process_uploaded_document(
         ]
 
         # Add embedded image chunks
+        image_chunk_count = 0
         for img in extracted_images:
             page_info = f"Page {img['metadata']['page_number']} " if "page_number" in img["metadata"] else ""
             img_content = f"File Name: {original_filename}\n{page_info}Image {img['metadata'].get('image_index', '?')}\n{img['content']}"
             chunks.append(img_content)
-            
+
             img_metadata = img["metadata"]
+            # Ensure VLM-sourced image chunks carry the correct tags
             img_metadata.update({
                 "document_id": document_id,
                 "filename": original_filename,
                 "chunk_index": len(chunks) - 1,
                 "user_id": user_id or "",
+                "source_type": img_metadata.get("source_type") or "vlm",
+                "content_type": img_metadata.get("content_type") or "image",
             })
             metadatas.append(img_metadata)
+            image_chunk_count += 1
+
+        if image_chunk_count:
+            print(f"[RAG] Image content chunks stored: {image_chunk_count}")
 
         if not chunks:
             raise ValueError(
@@ -251,10 +268,13 @@ def process_uploaded_document(
         # Load the embedding model and generate vectors.
         model = load_embedding_model()
 
+        embedding_start = time.perf_counter()
         embeddings = embed_chunks(
             model,
             chunks,
         )
+        embedding_time = time.perf_counter() - embedding_start
+        print(f"[RAG] Embedding time: {embedding_time:.2f}s")
 
         if not embeddings:
             raise ValueError(
@@ -296,12 +316,15 @@ def process_uploaded_document(
         )
 
         # Store embeddings in ChromaDB.
+        storage_start = time.perf_counter()
         add_documents(
             chunks,
             embeddings,
             metadatas=metadatas,
             document_id=document_id,
         )
+        storage_time = time.perf_counter() - storage_start
+        print(f"[RAG] ChromaDB storage time: {storage_time:.2f}s")
 
         vectors_stored = len(chunks)
 
@@ -347,6 +370,9 @@ def process_uploaded_document(
             embeddings_count=embeddings_count,
             vectors_stored=vectors_stored,
         )
+        
+        total_time = time.perf_counter() - process_start_time
+        print(f"[RAG] Total processing time for {original_filename}: {total_time:.2f}s")
 
     # Handle any processing errors.
     except Exception as error:

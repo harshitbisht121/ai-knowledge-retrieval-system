@@ -987,6 +987,7 @@ export default function ChatPage() {
           inputValue
         ).trim();
 
+      console.log("[CHAT] Current user question:", text);
 
       if (!text || isTyping) {
         return;

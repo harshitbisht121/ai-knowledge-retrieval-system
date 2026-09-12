@@ -97,6 +97,7 @@ def query_documents(
     """
 
     analytics_start = time.perf_counter()
+    print(f"[CHAT] Received question: {request.query}")
 
     # Validate retrieval count.
     if request.k < 1:

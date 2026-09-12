@@ -720,6 +720,8 @@ export async function sendChatMessage(
       originalQuery;
   }
 
+  console.log("[CHAT] Request payload:", requestBody);
+
   const response = await fetch(
     `${API_BASE_URL}/query`,
     {

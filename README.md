@@ -73,6 +73,12 @@ An AI-powered Retrieval-Augmented Generation (RAG) platform that enables users t
 - pandas
 - LangChain text splitters
 
+### VLM & Image Understanding
+
+- `google-genai` (Official Google GenAI SDK for Gemini Vision)
+- SmolVLM (`HuggingFaceTB/SmolVLM-256M-Instruct`) & Transformers
+- PyTorch & Pillow
+
 ### API & File Handling
 
 - python-multipart
@@ -453,6 +459,13 @@ GROQ_API_KEY=<your-groq-api-key>
 GROQ_MODEL=<configured-model>
 
 DATABASE_URL=postgresql+psycopg://postgres:<your-postgres-password>@localhost:5432/querynest
+
+GEMINI_API_KEY=<your-gemini-api-key>
+GEMINI_VLM_MODEL=gemini-3.6-flash
+GEMINI_VISION_MODEL=gemini-2.5-flash
+
+VLM_MODEL=HuggingFaceTB/SmolVLM-256M-Instruct
+VLM_DEVICE=auto
 
 JWT_SECRET_KEY=<long-random-secret>
 JWT_ALGORITHM=HS256

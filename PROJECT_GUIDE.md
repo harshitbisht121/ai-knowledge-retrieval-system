@@ -220,6 +220,13 @@ The frontend remains a React SPA built with Vite. The backend is a FastAPI appli
 | pandas | CSV parsing |
 | langchain-text-splitters | Recursive text chunking |
 
+### VLM & Image Understanding
+| Technology | Description |
+|---|---|
+| google-genai | Official Google GenAI SDK for Gemini Vision models |
+| SmolVLM / Transformers | Local HuggingFace visual-language model fallback (`HuggingFaceTB/SmolVLM-256M-Instruct`) |
+| PyTorch / Pillow | Tensor framework and image processing for VLM workflows |
+
 ### Development Tools
 | Technology | Description |
 |---|---|
@@ -1498,6 +1505,13 @@ GROQ_MODEL=<configured-model>
 
 DATABASE_URL=postgresql+psycopg://postgres:<your-postgres-password>@localhost:5432/querynest
 
+GEMINI_API_KEY=<your-gemini-api-key>
+GEMINI_VLM_MODEL=gemini-3.6-flash
+GEMINI_VISION_MODEL=gemini-2.5-flash
+
+VLM_MODEL=HuggingFaceTB/SmolVLM-256M-Instruct
+VLM_DEVICE=auto
+
 JWT_SECRET_KEY=<long-random-secret>
 JWT_ALGORITHM=HS256
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES=60
@@ -2154,6 +2168,13 @@ GROQ_API_KEY=<your-key>
 GROQ_MODEL=<configured-model>
 
 DATABASE_URL=postgresql+psycopg://postgres:<your-postgres-password>@localhost:5432/querynest
+
+GEMINI_API_KEY=<your-gemini-api-key>
+GEMINI_VLM_MODEL=gemini-3.6-flash
+GEMINI_VISION_MODEL=gemini-2.5-flash
+
+VLM_MODEL=HuggingFaceTB/SmolVLM-256M-Instruct
+VLM_DEVICE=auto
 
 JWT_SECRET_KEY=<long-random-secret>
 JWT_ALGORITHM=HS256

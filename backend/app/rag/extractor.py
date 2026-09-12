@@ -1,3 +1,4 @@
+import logging
 import os
 import tkinter as tk
 from tkinter import filedialog
@@ -6,12 +7,19 @@ from pypdf import PdfReader
 from docx import Document
 import pandas as pd
 
+# Keep logger for non-VLM use; VLM messages use print() to match codebase convention
+logger = logging.getLogger(__name__)
 
 BASE_FOLDER = os.path.dirname(os.path.abspath(__file__))
 
 OUTPUT_FOLDER = os.path.join(
     BASE_FOLDER,
     "extracted_text"
+)
+
+IMAGE_OUTPUT_FOLDER = os.path.join(
+    BASE_FOLDER,
+    "extracted_images"
 )
 
 
@@ -39,6 +47,7 @@ def select_file():
 
 def extract_pdf(file_path):
     from app.services.vlm_service import vlm_service
+    import uuid
     
     reader = PdfReader(file_path)
     text = ""
@@ -52,39 +61,71 @@ def extract_pdf(file_path):
             text += f"\n--- Page {page_number} ---\n"
             text += page_text
             
-        # Process images on the page
         for img_idx, image_file_object in enumerate(page.images):
             if image_count >= MAX_IMAGES:
                 break
                 
             try:
-                # Use vlm_service to analyze the image
+                # Ensure image directory exists
+                os.makedirs(IMAGE_OUTPUT_FOLDER, exist_ok=True)
+                
+                # Save the image to disk
+                img_filename = f"{uuid.uuid4().hex}_{image_file_object.name}"
+                img_path = os.path.join(IMAGE_OUTPUT_FOLDER, img_filename)
+                with open(img_path, "wb") as f:
+                    f.write(image_file_object.data)
+
+                # Use vlm_service to analyze the image (SmolVLM → Gemini fallback)
+                display_name = f"{os.path.basename(file_path)}:page{page_number}:img{img_idx}"
+                print(f"[VLM] Starting Gemini Vision processing: {display_name}")
                 vlm_answer = vlm_service.analyze_image(
-                    image_file_object.data, 
-                    "Describe this image in detail. Make sure to read and transcribe any prominent text (e.g., names, titles, dates, or data points).",
-                    max_tokens=200
+                    image_file_object.data,
+                    filename=display_name,
+                    max_tokens=1024,
                 )
-                if vlm_answer:
+                
+                vlm_text = vlm_answer.get("text") if isinstance(vlm_answer, dict) else vlm_answer
+                
+                if vlm_text:
+                    if isinstance(vlm_answer, dict):
+                        print(f"[VLM] Processing times - Gemini: {vlm_answer.get('gemini_time', 0):.2f}s, SmolVLM: {vlm_answer.get('smolvlm_time', 0):.2f}s")
+                    
+                    image_id = f"page{page_number}_img{img_idx}"
                     # Create a separate metadata record for the image
+                    metadata = {
+                        "page_number": page_number,
+                        "image_index": img_idx,
+                        "image_id": image_id,
+                        "source_type": "pdf_image",
+                        "content_type": "image",
+                        "image_path": img_path,
+                    }
+                    if isinstance(vlm_answer, dict):
+                        if vlm_answer.get("vision_model"):
+                            metadata["vision_model"] = vlm_answer["vision_model"]
+                        if vlm_answer.get("fallback_reason"):
+                            metadata["fallback_reason"] = vlm_answer["fallback_reason"]
+                    
+                    print(f"\n[VLM] Final extracted text for {display_name}:\n{vlm_text}\n" + "-"*40)
+                    
                     images_metadata.append({
-                        "content": f"[Visual Content: {vlm_answer}]",
-                        "metadata": {
-                            "page_number": page_number,
-                            "image_index": img_idx,
-                            "source_type": "pdf_image"
-                        }
+                        "content": f"[Visual Content: {vlm_text}]",
+                        "metadata": metadata
                     })
+                    print(f"[RAG] Image content chunks stored: 1 (page={page_number}, img={img_idx})")
+                else:
+                    print(f"[VLM] Both Gemini and SmolVLM failed for {display_name} — skipping chunk.")
                 image_count += 1
             except Exception as e:
                 # Ignore extraction errors for individual images
-                print(f"Failed to process image on page {page_number}: {e}")
-                pass
+                print(f"[VLM] Failed to process image on page {page_number}: {e}")
 
     return {"text": text, "images": images_metadata}
 
 
 def extract_docx(file_path):
     from app.services.vlm_service import vlm_service
+    import uuid
 
     document = Document(file_path)
     text = ""
@@ -105,25 +146,58 @@ def extract_docx(file_path):
                 break
             try:
                 image_data = rel.target_part.blob
-                # Use vlm_service to analyze the image
+                
+                # Ensure image directory exists
+                os.makedirs(IMAGE_OUTPUT_FOLDER, exist_ok=True)
+                
+                # Save the image to disk
+                img_filename = f"{uuid.uuid4().hex}_docx_img_{image_count}.png"
+                img_path = os.path.join(IMAGE_OUTPUT_FOLDER, img_filename)
+                with open(img_path, "wb") as f:
+                    f.write(image_data)
+
+                # Use vlm_service to analyze the image (SmolVLM → Gemini fallback)
+                display_name = f"{os.path.basename(file_path)}:img{image_count}"
+                print(f"[VLM] Starting Gemini Vision processing: {display_name}")
                 vlm_answer = vlm_service.analyze_image(
-                    image_data, 
-                    "Describe this image in detail. Make sure to read and transcribe any prominent text (e.g., names, titles, dates, or data points).",
-                    max_tokens=200
+                    image_data,
+                    filename=display_name,
+                    max_tokens=1024,
                 )
-                if vlm_answer:
+                
+                vlm_text = vlm_answer.get("text") if isinstance(vlm_answer, dict) else vlm_answer
+                
+                if vlm_text:
+                    if isinstance(vlm_answer, dict):
+                        print(f"[VLM] Processing times - Gemini: {vlm_answer.get('gemini_time', 0):.2f}s, SmolVLM: {vlm_answer.get('smolvlm_time', 0):.2f}s")
+                        
+                    image_id = f"docx_img_{image_count}"
                     # Create a separate metadata record for the image
+                    metadata = {
+                        "image_index": image_count,
+                        "image_id": image_id,
+                        "source_type": "docx_image",
+                        "content_type": "image",
+                        "image_path": img_path,
+                    }
+                    if isinstance(vlm_answer, dict):
+                        if vlm_answer.get("vision_model"):
+                            metadata["vision_model"] = vlm_answer["vision_model"]
+                        if vlm_answer.get("fallback_reason"):
+                            metadata["fallback_reason"] = vlm_answer["fallback_reason"]
+                            
+                    print(f"\n[VLM] Final extracted text for {display_name}:\n{vlm_text}\n" + "-"*40)
+                            
                     images_metadata.append({
-                        "content": f"[Visual Content: {vlm_answer}]",
-                        "metadata": {
-                            "image_index": image_count,
-                            "source_type": "docx_image"
-                        }
+                        "content": f"[Visual Content: {vlm_text}]",
+                        "metadata": metadata
                     })
+                    print(f"[RAG] Image content chunks stored: 1 (img={image_count})")
+                else:
+                    print(f"[VLM] Both Gemini and SmolVLM failed for {display_name} — skipping chunk.")
                 image_count += 1
             except Exception as e:
-                print(f"Failed to process image in DOCX: {e}")
-                pass
+                print(f"[VLM] Failed to process image in DOCX: {e}")
 
     return {"text": text, "images": images_metadata}
 
@@ -295,16 +369,60 @@ def extract_document(file_path):
     elif extension in [".jpg", ".jpeg", ".png"]:
         
         from app.services.vlm_service import vlm_service
+        import shutil
+        import uuid
+        
+        # Ensure image directory exists
+        os.makedirs(IMAGE_OUTPUT_FOLDER, exist_ok=True)
+        
+        img_filename = f"{uuid.uuid4().hex}_{os.path.basename(file_path)}"
+        img_path = os.path.join(IMAGE_OUTPUT_FOLDER, img_filename)
+        shutil.copyfile(file_path, img_path)
+
         with open(file_path, "rb") as f:
             image_data = f.read()
-            
+
+        original_basename = os.path.basename(file_path)
+        print(f"[VLM] Starting Gemini Vision processing: {original_basename}")
         try:
             vlm_answer = vlm_service.analyze_image(
-                image_data, 
-                "Describe this image in detail. Make sure to read and transcribe any prominent text (e.g., names, titles, dates, or data points).",
-                max_tokens=200
+                image_data,
+                filename=original_basename,
+                max_tokens=1024,
             )
-            text = f"[Image Description: {vlm_answer}]"
+            
+            vlm_text = vlm_answer.get("text") if isinstance(vlm_answer, dict) else vlm_answer
+            
+            if not vlm_text:
+                raise ValueError("Both Gemini and SmolVLM returned empty output — cannot index image.")
+            
+            if isinstance(vlm_answer, dict):
+                print(f"[VLM] Processing times - Gemini: {vlm_answer.get('gemini_time', 0):.2f}s, SmolVLM: {vlm_answer.get('smolvlm_time', 0):.2f}s")
+                
+            text = f"[Image Description: {vlm_text}]"
+            image_id = f"standalone_{uuid.uuid4().hex[:8]}"
+            
+            metadata = {
+                "source_type": "image",
+                "content_type": "image",
+                "image_id": image_id,
+                "image_path": img_path,
+            }
+            
+            if isinstance(vlm_answer, dict):
+                if vlm_answer.get("vision_model"):
+                    metadata["vision_model"] = vlm_answer["vision_model"]
+                if vlm_answer.get("fallback_reason"):
+                    metadata["fallback_reason"] = vlm_answer["fallback_reason"]
+                    
+            print(f"\n[VLM] Final extracted text for {original_basename}:\n{vlm_text}\n" + "-"*40)
+                    
+            images.append({
+                "content": text,
+                "metadata": metadata
+            })
+            print(f"[RAG] Image content chunks stored: 1 ({original_basename})")
+            text = ""  # content stored via images list
         except Exception as e:
             raise ValueError(f"Failed to process image: {e}")
 
