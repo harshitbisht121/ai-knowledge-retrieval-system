@@ -758,3 +758,90 @@ export async function analyzeImage(imageFile, question) {
   const data = await parseResponse(response);
   return data;
 }
+/* ------------------------------------------------------------------ */
+/* Admin APIs                                                         */
+/* ------------------------------------------------------------------ */
+
+export async function getAdminOverview() {
+  const response = await fetch(
+    `${API_BASE_URL}/admin/overview`,
+    {
+      method: 'GET',
+      headers: getAuthHeaders(),
+    },
+  );
+
+  return parseResponse(response);
+}
+
+export async function getAdminUsers() {
+  const response = await fetch(
+    `${API_BASE_URL}/admin/users`,
+    {
+      method: 'GET',
+      headers: getAuthHeaders(),
+    },
+  );
+
+  return parseResponse(response);
+}
+
+export async function getAdminUser(userId) {
+  const response = await fetch(
+    `${API_BASE_URL}/admin/users/${encodeURIComponent(userId)}`,
+    {
+      method: 'GET',
+      headers: getAuthHeaders(),
+    },
+  );
+
+  return parseResponse(response);
+}
+
+export async function getAdminDocuments() {
+  const response = await fetch(
+    `${API_BASE_URL}/admin/documents`,
+    {
+      method: 'GET',
+      headers: getAuthHeaders(),
+    },
+  );
+
+  return parseResponse(response);
+}
+
+export async function deleteAdminDocument(documentId) {
+  const response = await fetch(
+    `${API_BASE_URL}/admin/documents/${encodeURIComponent(documentId)}`,
+    {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+    },
+  );
+
+  return parseResponse(response);
+}
+
+export async function getQueriesPerUser() {
+  const response = await fetch(
+    `${API_BASE_URL}/admin/analytics/queries-per-user`,
+    {
+      method: 'GET',
+      headers: getAuthHeaders(),
+    },
+  );
+
+  return parseResponse(response);
+}
+
+export async function getFrequentQueries(limit = 10) {
+  const response = await fetch(
+    `${API_BASE_URL}/admin/analytics/frequent-queries?limit=${encodeURIComponent(limit)}`,
+    {
+      method: 'GET',
+      headers: getAuthHeaders(),
+    },
+  );
+
+  return parseResponse(response);
+}

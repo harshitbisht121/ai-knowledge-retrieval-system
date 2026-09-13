@@ -81,11 +81,7 @@ export default function AnalyticsPage({ onNavigateToGaps }) {
     <div className="m4-page">
       <div className="m4-header-row">
         <div>
-          <p style={{ fontSize: '0.65rem', fontWeight: 800, letterSpacing: '0.12em', color: 'var(--accent-emerald)', margin: '0 0 6px' }}>
-            MILESTONE 4 · BACKEND TELEMETRY
-          </p>
           <h1 className="m4-title">Analytics Dashboard</h1>
-          <p className="m4-subtitle">Real query analytics collected by the QueryNest backend.</p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button className="btn btn-secondary" onClick={load}>⟳ Refresh</button>
@@ -103,7 +99,7 @@ export default function AnalyticsPage({ onNavigateToGaps }) {
       <div className="m4-grid-2">
         <div className="glass-panel m4-panel">
           <div className="m4-panel-head">
-            <div><h3 className="m4-panel-title">Query Type Distribution</h3><p className="m4-panel-sub">Actual query classifications recorded by the backend.</p></div>
+            <div><h3 className="m4-panel-title">Query Type Distribution</h3></div>
           </div>
           {data.queryTypes.length === 0 ? (
             <p style={{ color: 'var(--text-muted)' }}>No query-type analytics recorded yet.</p>
@@ -139,7 +135,7 @@ export default function AnalyticsPage({ onNavigateToGaps }) {
 
         <div className="glass-panel m4-panel">
           <div className="m4-panel-head">
-            <div><h3 className="m4-panel-title">System Performance</h3><p className="m4-panel-sub">Metrics available from the current M4 backend.</p></div>
+            <div><h3 className="m4-panel-title">System Performance</h3></div>
           </div>
           {[
             { label: 'Answer Rate', value: `${answerRate.toFixed(1)}%`, pct: answerRate },
@@ -162,7 +158,6 @@ export default function AnalyticsPage({ onNavigateToGaps }) {
         <div className="m4-panel-head">
           <div>
             <h3 className="m4-panel-title">Common Query Themes</h3>
-            <p className="m4-panel-sub">Semantically similar user queries are grouped with the analytics-only all-MiniLM-L6-v2 model. Themes with repeated unanswered or low-confidence queries are flagged as potential knowledge-base gaps.</p>
           </div>
         </div>
 
@@ -193,7 +188,7 @@ export default function AnalyticsPage({ onNavigateToGaps }) {
 
       <div className="glass-panel m4-panel">
         <div className="m4-panel-head">
-          <div><h3 className="m4-panel-title">Knowledge Gap Monitoring</h3><p className="m4-panel-sub">Open backend-detected gaps are available in the dedicated dashboard.</p></div>
+          <div><h3 className="m4-panel-title">Knowledge Gap Monitoring</h3></div>
           <button className="btn btn-secondary" onClick={onNavigateToGaps}>View Knowledge Gaps →</button>
         </div>
         <div style={{ color: 'var(--text-secondary)', fontSize: '0.82rem' }}>
