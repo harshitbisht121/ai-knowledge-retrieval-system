@@ -207,13 +207,7 @@ You are a query reformulation component in a RAG system.
 Rewrite the current user query into a standalone search query
 that can be understood without the previous conversation.
 
-IMPORTANT: You MUST preserve the user's actual intent.
-Do NOT replace the user's question with content from the assistant's previous answer.
-Do NOT answer the question.
-Do NOT produce a sentence that describes the previous answer.
-Do NOT copy text from the "Assistant:" lines of the conversation.
-
-Use the previous conversation ONLY to resolve short references such as:
+Use the previous conversation only to resolve references such as:
 - it
 - its
 - this
@@ -224,8 +218,9 @@ Use the previous conversation ONLY to resolve short references such as:
 - the previous answer
 - follow-up references
 
-If the current user query is already standalone and specific, return it unchanged.
-Keep the user's actual intent and topic unchanged.
+Do not answer the question.
+Do not add information that is not supported by the conversation.
+Keep the user's actual intent unchanged.
 
 Previous conversation:
 {conversation_text}
@@ -266,25 +261,6 @@ Return ONLY the standalone query.
 
         if not standalone_query:
             return query
-
-        print(f"[CHAT] _resolve_contextual_query RAW output: {standalone_query[:200]!r}")
-
-        # ── Safety guard ──────────────────────────────────────────────────
-        # Reject the resolved query if it looks more like the assistant's
-        # previous answer than like the user's actual question.
-        # This prevents the LLM from accidentally returning answer text
-        # from the conversation history instead of a rewritten query.
-        original_words = set(query.lower().split())
-        resolved_words = set(standalone_query.lower().split())
-        if original_words:
-            overlap = len(original_words & resolved_words) / len(original_words)
-            if overlap < 0.15:
-                # Less than 15 % word overlap with the original — likely garbage.
-                print(
-                    f"[CHAT] _resolve_contextual_query: low overlap "
-                    f"({overlap:.0%}) — reverting to original query."
-                )
-                return query
 
         return standalone_query
 
@@ -389,12 +365,8 @@ def query_understanding_node(
             [],
         )
 
-        print(f"[CHAT] Original query from state: {query}")
-        print(f"[CHAT] Memory context turns loaded: {len(memory_context)}")
-
         if state.get("refined_query"):
             resolved_query = query
-            print("[CHAT] Refined query — skipping memory resolution.")
         else:
             resolved_query = _resolve_contextual_query(
                 query=query,
@@ -406,7 +378,6 @@ def query_understanding_node(
             **state,
             "query": resolved_query,
         }
-        print(f"[CHAT] Query after memory resolution: {resolved_query}")
 
         # -------------------------------------------------------------
         # Existing Query Understanding Agent remains unchanged.
@@ -415,7 +386,6 @@ def query_understanding_node(
         analysis = _query_understanding_agent.run(
             resolved_query
         )
-        print(f"[CHAT] search_query sent to retrieval: {analysis.search_query}")
 
         return {
             **result,
@@ -689,9 +659,6 @@ def retrieval_node(
             3,
         )
 
-        import time
-        retrieval_start = time.perf_counter()
-        
         retrieval_result = (
             _retrieval_agent.run(
                 analysis,
@@ -699,9 +666,6 @@ def retrieval_node(
                 user_id=state.get("user_id"),
             )
         )
-        
-        retrieval_time = time.perf_counter() - retrieval_start
-        print(f"[RAG] Retrieval time: {retrieval_time:.2f}s")
 
         # ----------------------------------------------------------------
         # Filename-based fallback
@@ -710,16 +674,13 @@ def retrieval_node(
         # were below the relevance threshold), try to find chunks whose
         # stored filename appears in the raw query.  This handles queries
         # like "can u tell about flood.jpg" where the semantic distance
-        # between the query text and the VLM-generated image description
+        # between the query text and the OCR-extracted image text
         # is too large to pass the threshold.
         # ----------------------------------------------------------------
 
         print(f"\n[RETRIEVAL] Query: {state.get('query', '')}")
-        print(f"[CHAT] Query entering retrieval: {state.get('query', '')}")
-        print(f"[CHAT] User ID: {state.get('user_id')}")
-        primary_count = len(retrieval_result.get('results', []))
-        print(f"[RETRIEVAL] Primary results after threshold: {primary_count}")
-        print(f"[CHAT] Retrieved context count: {primary_count}")
+        print(f"[RETRIEVAL] User ID: {state.get('user_id')}")
+        print(f"[RETRIEVAL] Primary results after threshold: {len(retrieval_result.get('results', []))}")
 
         # Backward-compat: if primary user-filtered retrieval returns nothing,
         # retry without user_id (for docs indexed before user_id was required).
@@ -754,7 +715,7 @@ def retrieval_node(
 
             fallback_chunks = []
             for fname in filename_tokens:
-                fallback_chunks.extend(search_by_filename(fname, raw_query=raw_query, user_id=state.get("user_id")))
+                fallback_chunks.extend(search_by_filename(fname, raw_query=raw_query))
             # NOTE: We intentionally do NOT fall back to search_by_filename(raw_query)
             # when no filename tokens are found. That would treat the entire question
             # as a filename filter and prevent normal semantic retrieval from working.
@@ -824,16 +785,6 @@ def retrieval_node(
 
         print(f"[RETRIEVAL] Final result count: {len(retrieval_result.get('results', []))}")
         print(f"[RETRIEVAL] Fallback used: {retrieval_result.get('fallback', 'none')}\n")
-        
-        # Log retrieved chunks for debugging
-        results = retrieval_result.get('results', [])
-        if results:
-            print(f"\n[RETRIEVAL] --- Retrieved Chunks ---")
-            for i, chunk in enumerate(results):
-                content = chunk.get('content', '') if isinstance(chunk, dict) else str(chunk)
-                # truncate for log if needed, or just print
-                print(f"\nChunk {i+1}:\n{content}\n" + "-"*30)
-            print("[RETRIEVAL] ------------------------\n")
 
         return {
             **state,
@@ -869,8 +820,6 @@ def response_generation_node(
         "",
     ).strip()
 
-    print(f"[CHAT] Query entering LLM (response_generation_node): {query}")
-
     retrieval_result = state.get(
         "retrieval_result",
         {},
@@ -881,47 +830,11 @@ def response_generation_node(
         [],
     )
 
-    # Extract visual evidence for image chunks using the user's specific query
-    processed_chunks = []
-    if chunks:
-        from app.services.vlm_service import vlm_service
-        import os
-        
-        for chunk in chunks:
-            if isinstance(chunk, dict) and "metadata" in chunk and "image_path" in chunk["metadata"]:
-                image_path = chunk["metadata"]["image_path"]
-                if os.path.exists(image_path):
-                    try:
-                        with open(image_path, "rb") as f:
-                            image_bytes = f.read()
-                        
-                        visual_evidence = vlm_service.analyze_image_for_query(image_bytes, query)
-                        
-                        # Create a new chunk that replaces the brief description with the detailed visual evidence
-                        new_chunk = dict(chunk)
-                        new_chunk["content"] = f"[VISUAL EVIDENCE]\n{visual_evidence}"
-                        processed_chunks.append(new_chunk)
-                    except Exception as e:
-                        print(f"Failed to extract visual evidence from {image_path}: {e}")
-                        processed_chunks.append(chunk)
-                else:
-                    processed_chunks.append(chunk)
-            else:
-                processed_chunks.append(chunk)
-    else:
-        processed_chunks = chunks
-
     try:
-        import time
-        llm_start_time = time.perf_counter()
-        
         response = generate_response(
             question=query,
-            chunks=processed_chunks,
+            chunks=chunks,
         )
-        
-        llm_time = time.perf_counter() - llm_start_time
-        print(f"[RAG] LLM generation time: {llm_time:.2f}s")
 
         return {
             **state,

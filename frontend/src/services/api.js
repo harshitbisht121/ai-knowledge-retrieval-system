@@ -744,20 +744,6 @@ export async function sendChatMessage(
   return data;
 }
 
-export async function analyzeImage(imageFile, question) {
-  const formData = new FormData();
-  formData.append('image', imageFile);
-  formData.append('question', question);
-
-  const response = await fetch(`${API_BASE_URL}/vlm/analyze`, {
-    method: 'POST',
-    // Do NOT set Content-Type header for FormData; fetch will set it automatically with the correct boundary
-    body: formData,
-  });
-
-  const data = await parseResponse(response);
-  return data;
-}
 /* ------------------------------------------------------------------ */
 /* Admin APIs                                                         */
 /* ------------------------------------------------------------------ */

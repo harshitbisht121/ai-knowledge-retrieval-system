@@ -104,8 +104,11 @@ def get_average_confidence(
     user_id: str,
 ) -> float | None:
     """
-    Calculate average confidence score
-    for one user.
+    Calculate average confidence score for RAG-related queries
+    for one authenticated user.
+
+    General queries are excluded because they do not evaluate
+    knowledge-base retrieval quality.
     """
 
     result = (
@@ -115,7 +118,9 @@ def get_average_confidence(
             )
         )
         .filter(
-            QueryAnalytics.user_id == user_id
+            QueryAnalytics.user_id == user_id,
+            QueryAnalytics.query_type != "general",
+            QueryAnalytics.confidence_score.isnot(None),
         )
         .scalar()
     )
@@ -127,7 +132,6 @@ def get_average_confidence(
         float(result),
         3,
     )
-
 
 def get_average_response_time(
     db: Session,

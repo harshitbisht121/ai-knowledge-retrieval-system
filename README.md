@@ -1,12 +1,14 @@
 # AI-Based Knowledge Retrieval Platform with Query Resolution System
 
-An AI-powered Retrieval-Augmented Generation (RAG) platform that enables users to upload knowledge-base documents and query them using natural language. The project combines a multi-agent LangGraph workflow with persistent PostgreSQL conversation memory, clarification handling, browser-based voice input/output, response transparency, authenticated user workspaces, and direct LLM handling for general-knowledge/conversational questions. Milestone 4 adds query analytics, domain-agnostic common query-theme detection, knowledge-gap detection, authenticated user-specific knowledge bases, user-scoped ChromaDB retrieval, and dedicated Analytics and Knowledge Gap dashboards.
+An AI-powered Retrieval-Augmented Generation (RAG) platform that enables users to upload knowledge-base documents and query them using natural language. The ingestion pipeline supports native text extraction and OCR for scanned, handwritten, and image-based content. The project combines a multi-agent LangGraph workflow with persistent PostgreSQL conversation memory, clarification handling, browser-based voice input/output, response transparency, authenticated user workspaces, and direct LLM handling for general-knowledge/conversational questions. Milestone 4 adds query analytics, domain-agnostic common query-theme detection, knowledge-gap detection, authenticated user-specific knowledge bases, user-scoped ChromaDB retrieval, and dedicated Analytics and Knowledge Gap dashboards.
 
 > **Detailed Documentation:** See **`PROJECT_GUIDE.md`** for the complete architecture, workflow diagrams, backend/frontend design, API documentation, Milestones 1–4 implementation details, semantic query-theme analytics, testing flow, and development guidelines.
 
 ## Features
 
-- 📄 Upload PDF, DOCX, TXT, and CSV documents
+- 📄 Upload PDF, DOCX, TXT, CSV, JPG, JPEG, and PNG documents
+- 🔤 Hybrid document extraction with PyMuPDF native PDF text extraction and PaddleOCR fallback for scanned or handwritten pages
+- 🖼️ OCR for standalone images and embedded DOCX images with optional image filtering
 - 🔍 Semantic document retrieval using ChromaDB and Sentence Transformers
 - 🧠 Query Understanding Agent for normalization, entity/keyword extraction and query classification
 - 🔎 Hybrid retrieval with semantic search and optional exact-term matching
@@ -66,18 +68,17 @@ An AI-powered Retrieval-Augmented Generation (RAG) platform that enables users t
 - ChromaDB
 - Retrieval-Augmented Generation (RAG)
 
-### Document Processing
+### Document Processing & OCR
 
 - pypdf
+- PyMuPDF
 - python-docx
 - pandas
+- PaddlePaddle
+- PaddleOCR
+- Pillow
+- OpenCV (via PaddleOCR dependencies)
 - LangChain text splitters
-
-### VLM & Image Understanding
-
-- `google-genai` (Official Google GenAI SDK for Gemini Vision)
-- SmolVLM (`HuggingFaceTB/SmolVLM-256M-Instruct`) & Transformers
-- PyTorch & Pillow
 
 ### API & File Handling
 
@@ -108,7 +109,8 @@ AI-Based Knowledge Retrieval Platform with Query Resolution System/
 │   │   │   ├── query.py
 │   │   │   ├── conversations.py
 │   │   │   ├── knowledge_base.py
-│   │   │   └── upload.py
+│   │   │   ├── upload.py
+│   │   │   └── voice.py
 │   │   ├── analytics/
 │   │   │   ├── models.py
 │   │   │   ├── schemas.py
@@ -140,13 +142,14 @@ AI-Based Knowledge Retrieval Platform with Query Resolution System/
 │   │   │   ├── chromadb_service.py
 │   │   │   ├── chunking.py
 │   │   │   ├── embedding.py
-│   │   │   └── extractor.py
+│   │   │   └── extractor.py                     # Hybrid native-text + OCR document extraction
 │   │   ├── dependencies/
 │   │   │   └── auth.py
 │   │   ├── services/
 │   │   │   ├── document_service.py
 │   │   │   ├── knowledge_base_service.py
 │   │   │   ├── metadata_service.py
+│   │   │   ├── ocr_service.py               # PaddleOCR service for images and OCR fallback
 │   │   │   ├── query_service.py
 │   │   │   └── upload_service.py
 │   │   ├── agents/
@@ -166,11 +169,14 @@ AI-Based Knowledge Retrieval Platform with Query Resolution System/
 │   │   │   └── service.py
 │   │   ├── test/
 │   │   │   └── test_memory.py
-│   │   └── orchestration/
-│   │       ├── state.py
-│   │       ├── nodes.py
-│   │       ├── query_router.py
-│   │       └── workflow.py
+│   │   ├── orchestration/
+│   │   │   ├── state.py
+│   │   │   ├── nodes.py
+│   │   │   ├── query_router.py
+│   │   │   └── workflow.py
+│   │   └── utils/
+│   │       ├── __init__.py
+│   │       └── image_filter.py               # Filters tiny/repeated DOCX images before OCR
 │   ├── chroma_db/
 │   ├── metadata/
 │   ├── uploads/
@@ -201,7 +207,13 @@ AI-Based Knowledge Retrieval Platform with Query Resolution System/
 │   │   │   ├── HistoryPage.css
 │   │   │   ├── AnalyticsPage.jsx
 │   │   │   ├── KnowledgeGapPage.jsx
-│   │   │   └── Milestone4.css
+│   │   │   ├── Milestone4.css
+│   │   │   ├── AdminDashboard.jsx
+│   │   │   ├── AdminUsers.jsx
+│   │   │   ├── AdminUserDetail.jsx
+│   │   │   ├── AdminDocuments.jsx
+│   │   │   ├── AdminAnalytics.jsx
+│   │   │   └── AdminDashboard.css
 │   │   ├── services/
 │   │   │   ├── api.js
 │   │   │   └── analytics.js
@@ -460,13 +472,6 @@ GROQ_MODEL=<configured-model>
 
 DATABASE_URL=postgresql+psycopg://postgres:<your-postgres-password>@localhost:5432/querynest
 
-GEMINI_API_KEY=<your-gemini-api-key>
-GEMINI_VLM_MODEL=gemini-3.6-flash
-GEMINI_VISION_MODEL=gemini-2.5-flash
-
-VLM_MODEL=HuggingFaceTB/SmolVLM-256M-Instruct
-VLM_DEVICE=auto
-
 JWT_SECRET_KEY=<long-random-secret>
 JWT_ALGORITHM=HS256
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES=60
@@ -615,7 +620,7 @@ Once PostgreSQL, Alembic, FastAPI, and the frontend are running:
 1. Open the frontend.
 2. Register a new account.
 3. Sign in.
-4. Upload a PDF, DOCX, TXT, or CSV document.
+4. Upload a PDF, DOCX, TXT, CSV, JPG, JPEG, or PNG document.
 5. Wait for document processing to complete.
 6. Start a conversation.
 7. Ask a knowledge-base question.
@@ -887,6 +892,9 @@ The backend receives the equivalent of:
 - DOCX
 - TXT
 - CSV
+- JPG
+- JPEG
+- PNG
 
 
 ## Milestone 4 — Query Analytics, Knowledge Gap Detection & User-Specific Knowledge Base

@@ -4,7 +4,7 @@
 
 ### Project Objective
 
-The objective of this project is to provide an AI-powered Knowledge Retrieval Platform that allows users to upload documents (PDF, DOCX, TXT, CSV) and interactively query them using a Retrieval-Augmented Generation (RAG) approach. Milestone 2 extended the Milestone 1 RAG pipeline into a multi-agent query-resolution workflow using Query Understanding, Retrieval, and Response Generation agents coordinated by LangGraph. Milestone 3 extends that workflow with Clarification, Conversation Memory, browser-based Voice Input/Text-to-Speech integration, Response Transparency in the conversational UI, and authenticated user-specific workspaces. The current query layer also supports general-knowledge and conversational questions through a direct LLM route while preserving the existing knowledge-base RAG route. Milestone 4 adds query-level analytics, domain-agnostic common query-theme detection, knowledge-gap detection, a database-backed user-specific knowledge base, user-scoped ChromaDB retrieval, and dedicated frontend dashboards for Analytics and Knowledge Gaps while preserving the M1–M3 workflow.
+The objective of this project is to provide an AI-powered Knowledge Retrieval Platform that allows users to upload documents (PDF, DOCX, TXT, CSV, JPG, JPEG, PNG) and interactively query them using a Retrieval-Augmented Generation (RAG) approach. The ingestion layer uses native text extraction where available and PaddleOCR for scanned, handwritten, or image-based content. Milestone 2 extended the Milestone 1 RAG pipeline into a multi-agent query-resolution workflow using Query Understanding, Retrieval, and Response Generation agents coordinated by LangGraph. Milestone 3 extends that workflow with Clarification, Conversation Memory, browser-based Voice Input/Text-to-Speech integration, Response Transparency in the conversational UI, and authenticated user-specific workspaces. The current query layer also supports general-knowledge and conversational questions through a direct LLM route while preserving the existing knowledge-base RAG route. Milestone 4 adds query-level analytics, domain-agnostic common query-theme detection, knowledge-gap detection, a database-backed user-specific knowledge base, user-scoped ChromaDB retrieval, and dedicated frontend dashboards for Analytics and Knowledge Gaps while preserving the M1–M3 workflow.
 
 ### Problem Statement
 
@@ -40,12 +40,12 @@ Baseline LLM Response
 
 ### Milestone 1 Components
 
-- **Document Upload:** Supports PDF, DOCX, TXT, and CSV files.
-- **Document Extraction:** Extracts readable text from uploaded files using the appropriate document-processing libraries.
+- **Document Upload:** Supports PDF, DOCX, TXT, CSV, JPG, JPEG, and PNG files.
+- **Document Extraction:** Uses native extraction for text-based documents and a hybrid PDF/image OCR pipeline for scanned, handwritten, and image-based content.
 - **Chunking:** Splits extracted documents into smaller text chunks for efficient retrieval.
 - **Embedding Generation:** Converts chunks into semantic vector representations using the `all-MiniLM-L6-v2` SentenceTransformer model.
 - **Vector Storage:** Stores document chunks and embeddings persistently in ChromaDB.
-- **Metadata Persistence:** Maintains document metadata and processing status using local JSON storage.
+- **Metadata Persistence:** Maintains document metadata and processing status in PostgreSQL; ChromaDB stores document chunks and embeddings for retrieval.
 - **Semantic Retrieval:** Retrieves the most semantically relevant document chunks for a user query.
 - **Baseline Querying:** Uses the retrieved context to generate answers grounded in the uploaded knowledge base.
 
@@ -135,7 +135,7 @@ For an ambiguous query that needs user clarification, the first request ends aft
 1. **Upload:** A user uploads a document via the React frontend.
 2. **Extraction & Chunking:** The FastAPI backend extracts text and splits it into smaller chunks.
 3. **Embedding:** Chunks are converted into semantic vector embeddings using SentenceTransformer.
-4. **Storage:** Embeddings and chunks are stored in ChromaDB, while document metadata is persisted in local JSON.
+4. **Storage:** Embeddings and chunks are stored in ChromaDB, while document metadata and processing status are persisted in PostgreSQL.
 5. **Conversation Creation:** The frontend creates a conversation and receives a persistent `conversation_id` from the conversation API.
 6. **Querying:** The user submits a natural-language query through the chat interface, either typed or produced by browser speech recognition.
 7. **Memory Loading:** The workflow loads previous conversation context when a `conversation_id` is supplied.
@@ -199,7 +199,7 @@ The frontend remains a React SPA built with Vite. The backend is a FastAPI appli
 | PostgreSQL | Persistent users, conversations/messages, query analytics, and user-specific knowledge-base document metadata |
 | SQLAlchemy | Database ORM/session layer |
 | Psycopg 3 | PostgreSQL connectivity |
-| Local JSON | Retained for the original M1 document metadata/status flow; M4 user-specific KB document records are persisted in PostgreSQL |
+| PostgreSQL | Persistent users, conversations/messages, query analytics, knowledge-gap records, and uploaded-document metadata/status |
 
 ### Vector Database
 | Technology | Description |
@@ -215,17 +215,16 @@ The frontend remains a React SPA built with Vite. The backend is a FastAPI appli
 ### Document Processing Libraries
 | Technology | Description |
 |---|---|
-| pypdf | PDF extraction |
+| pypdf | General PDF support and compatibility |
+| PyMuPDF | Native PDF text extraction and scanned-page rendering |
 | python-docx | DOCX extraction |
 | pandas | CSV parsing |
+| PaddlePaddle | Deep-learning runtime used by PaddleOCR |
+| PaddleOCR | OCR for scanned/handwritten/image-based content |
+| Pillow | Image processing |
+| OpenCV | Image-processing dependency used by the OCR stack |
+| image_filter.py | Filters tiny/repeated DOCX images before OCR |
 | langchain-text-splitters | Recursive text chunking |
-
-### VLM & Image Understanding
-| Technology | Description |
-|---|---|
-| google-genai | Official Google GenAI SDK for Gemini Vision models |
-| SmolVLM / Transformers | Local HuggingFace visual-language model fallback (`HuggingFaceTB/SmolVLM-256M-Instruct`) |
-| PyTorch / Pillow | Tensor framework and image processing for VLM workflows |
 
 ### Development Tools
 | Technology | Description |
@@ -249,8 +248,7 @@ AI-Based Knowledge Retrieval Platform with Query Resolution System/
 │   │   │   ├── 5a7a6c2b7c8f_add_user_specific_knowledge_base.py
 │   │   │   └── e9b7e767c397_add_user_id_to_knowledge_gaps.py
 │   │   ├── env.py
-│   │   ├── script.py.mako
-│   │   └── README
+│   │   └── script.py.mako
 │   ├── alembic.ini
 │   ├── app/
 │   │   ├── __init__.py
@@ -264,9 +262,8 @@ AI-Based Knowledge Retrieval Platform with Query Resolution System/
 │   │   │   ├── query.py                         # Main M2/M3/M4 /query endpoint + telemetry logging
 │   │   │   ├── conversations.py                 # Authenticated conversation management endpoints
 │   │   │   ├── upload.py                        # Legacy/original upload and status endpoints
-│   │   │   ├── knowledge_base.py                # User-specific knowledge-base document APIs
 │   │   │   ├── analytics.py                     # M4 analytics router (where applicable)
-│   │   │   └── knowledge_gaps.py                # M4 knowledge-gap router (where applicable)
+│   │   │   └── voice.py
 │   │   │
 │   │   ├── core/                                # Application configuration, auth, and database setup
 │   │   │   ├── __init__.py
@@ -287,7 +284,7 @@ AI-Based Knowledge Retrieval Platform with Query Resolution System/
 │   │   │   ├── chromadb_service.py              # ChromaDB operations
 │   │   │   ├── chunking.py                      # Text chunking
 │   │   │   ├── embedding.py                     # Embedding generation
-│   │   │   └── extractor.py                     # Document text extraction
+│   │   │   └── extractor.py                     # Hybrid native-text + OCR document extraction
 │   │   │
 │   │   ├── dependencies/                        # FastAPI dependency helpers
 │   │   │   └── auth.py                          # Bearer/JWT authenticated-user dependency
@@ -296,7 +293,8 @@ AI-Based Knowledge Retrieval Platform with Query Resolution System/
 │   │   │   ├── __init__.py
 │   │   │   ├── document_service.py              # Document management logic
 │   │   │   ├── knowledge_base_service.py        # M4 user-specific KB lifecycle and processing
-│   │   │   ├── metadata_service.py              # JSON metadata/status persistence retained for M1 flow
+│   │   │   ├── metadata_service.py              # Upload-job progress/status persistence
+│   │   │   ├── ocr_service.py                   # PaddleOCR service for OCR processing
 │   │   │   ├── query_service.py                 # Milestone 1 baseline retained
 │   │   │   └── upload_service.py                # Upload validation/processing pipeline
 │   │   │
@@ -377,7 +375,8 @@ AI-Based Knowledge Retrieval Platform with Query Resolution System/
 │   │   │   └── workflow.py                      # LangGraph graph construction/runner
 │   │   │
 │   │   └── utils/
-│   │       └── __init__.py
+│   │       ├── __init__.py
+│   │       └── image_filter.py                  # Filters tiny/repeated DOCX images before OCR
 │   │
 │   ├── chroma_db/                               # Local ChromaDB data (ignored)
 │   ├── metadata/                                # Local metadata/state (ignored)
@@ -396,7 +395,7 @@ AI-Based Knowledge Retrieval Platform with Query Resolution System/
 │   │   │   ├── FileUploader.jsx
 │   │   │   ├── Footer.jsx
 │   │   │   ├── GroundingEvidenceView.jsx        # If included in integrated UI
-│   │   │   ├── Sidebar.jsx
+│   │   │   ├── Sidebar.jsx                      # Main navigation with Admin-only entry
 │   │   │   ├── VoiceInput.jsx                   # Voice UI component, if used
 │   │   │   └── speechtotext.jsx                 # Speech helper, if retained
 │   │   ├── hooks/
@@ -406,11 +405,17 @@ AI-Based Knowledge Retrieval Platform with Query Resolution System/
 │   │   ├── pages/
 │   │   │   ├── AuthPage.jsx                     # Sign in / sign up UI
 │   │   │   ├── ChatPage.jsx                     # Chat + voice + transparency UI
-│   │   │   └── UploadPage.jsx                    # Document upload UI
+│   │   │   ├── UploadPage.jsx                   # Document upload UI
+│   │   │   ├── AdminDashboard.jsx               # Admin overview with system statistics
+│   │   │   ├── AdminUsers.jsx                   # Admin user management/list view
+│   │   │   ├── AdminUserDetail.jsx              # Admin user details view
+│   │   │   ├── AdminDocuments.jsx               # Admin document management and deletion
+│   │   │   ├── AdminAnalytics.jsx               # Admin query analytics and frequent queries
+│   │   │   └── AdminDashboard.css               # Admin Dashboard styling
 │   │   ├── services/
-│   │   │   └── api.js                           # REST API communication
+│   │   │   └── api.js                           # REST API communication, including Admin APIs
 │   │   ├── App.css
-│   │   ├── App.jsx
+│   │   ├── App.jsx                              # Existing tab-based app navigation, including Admin views
 │   │   ├── index.css
 │   │   └── main.jsx
 │   ├── .env                                     # Local frontend API URL (ignored)
@@ -665,7 +670,8 @@ The theme-analysis model is deliberately separate from `app/rag/embedding.py`. B
 
 ### `app/services/`
 - `document_service.py`: Document listing/deletion business logic.
-- `metadata_service.py`: JSON metadata and processing status.
+- `metadata_service.py`: Upload-job progress and processing status.
+- `ocr_service.py`: PaddleOCR initialization and OCR operations for images and scanned PDF pages.
 - ``query_service.py`: Retained as the Milestone 1 baseline for comparison/backward compatibility; it is not the main Milestone 3 orchestration entry point.
 - `upload_service.py`: Document ingestion pipeline.
 
@@ -1148,13 +1154,62 @@ A query that is intended to use uploaded project/company/document information co
 
 ---
 
+## SECTION 11B — DOCUMENT INGESTION & OCR
+
+The ingestion pipeline preserves the original RAG flow while adding OCR where native text extraction is insufficient.
+
+### Hybrid extraction strategy
+
+```text
+PDF
+ ↓
+Native PyMuPDF text extraction
+ ↓
+Enough readable text?
+ ├── Yes → use native text
+ └── No  → render page → PaddleOCR → OCR text
+
+DOCX
+ ↓
+Native paragraph extraction
+ ↓
+Embedded images
+ ↓
+Optional image filtering
+ ↓
+PaddleOCR
+
+JPG / JPEG / PNG
+ ↓
+PaddleOCR
+
+TXT / CSV
+ ↓
+Native text/tabular extraction
+
+All extracted content
+ ↓
+Chunking → Embeddings → ChromaDB
+```
+
+### OCR modules
+
+- `app/rag/extractor.py`: Selects the extraction strategy by file type and performs hybrid PDF extraction.
+- `app/services/ocr_service.py`: Runs PaddleOCR for rendered PDF pages, standalone images and embedded DOCX images.
+- `app/utils/image_filter.py`: Filters tiny or repeated DOCX images before OCR to avoid unnecessary processing.
+- `app/services/upload_service.py`: Maintains PostgreSQL document metadata and connects extraction/OCR to the existing chunking, embedding and ChromaDB pipeline.
+
+Normal text-based PDF pages are not forced through OCR. OCR is used as a fallback when a page contains little or no native text. This reduces unnecessary OCR processing while preserving support for scanned and handwritten documents.
+
 ## SECTION 12 — RAG PIPELINE
 
 The underlying RAG infrastructure from Milestone 1 is retained:
 
 ```mermaid
 graph LR
-    E[extractor.py] --> C[chunking.py]
+    E[extractor.py] --> OCR[PaddleOCR fallback for scanned/image content]
+    OCR --> C[chunking.py]
+    E --> C
     C --> EMB[embedding.py]
     EMB --> DB[chromadb_service.py]
     DB --> SR[Semantic Retrieval]
@@ -1465,23 +1520,23 @@ The current integrated design does not require a standalone `/transparency` requ
 
 ### Document Storage
 - `uploads/`: Temporary raw upload storage.
-- `metadata/`: `documents.json` and processing metadata.
-- `chroma_db/`: Persistent ChromaDB vector data.
+- `chroma_db/`: Persistent ChromaDB vector data containing document chunks and embeddings for retrieval.
+- PostgreSQL: Persistent document metadata, ownership, file information, and processing status.
 
 ### Conversation Storage
 Conversation data is stored in PostgreSQL, with SQLAlchemy managing sessions and ORM persistence.
 
-The vector database and conversation database have different responsibilities:
+The storage systems have separate responsibilities:
 
 ```text
 ChromaDB
 → document chunks + embeddings + retrieval
 
 PostgreSQL
-→ conversations + conversation messages
+→ users + document metadata/status + conversations + conversation messages + analytics
 ```
 
-The Milestone 3 Memory Agent does not replace ChromaDB and does not store document embeddings.
+The Conversation Memory Agent does not replace ChromaDB and does not store document embeddings.
 
 ---
 
@@ -1505,12 +1560,6 @@ GROQ_MODEL=<configured-model>
 
 DATABASE_URL=postgresql+psycopg://postgres:<your-postgres-password>@localhost:5432/querynest
 
-GEMINI_API_KEY=<your-gemini-api-key>
-GEMINI_VLM_MODEL=gemini-3.6-flash
-GEMINI_VISION_MODEL=gemini-2.5-flash
-
-VLM_MODEL=HuggingFaceTB/SmolVLM-256M-Instruct
-VLM_DEVICE=auto
 
 JWT_SECRET_KEY=<long-random-secret>
 JWT_ALGORITHM=HS256
@@ -1944,7 +1993,7 @@ graph TD
     D --> E[Chunking]
     E --> F[SentenceTransformer Embedding]
     F --> G[ChromaDB]
-    G --> H[Metadata JSON]
+    G --> H[PostgreSQL Document Metadata/Status]
     H --> I[Processing Completed]
 ```
 
@@ -2169,12 +2218,6 @@ GROQ_MODEL=<configured-model>
 
 DATABASE_URL=postgresql+psycopg://postgres:<your-postgres-password>@localhost:5432/querynest
 
-GEMINI_API_KEY=<your-gemini-api-key>
-GEMINI_VLM_MODEL=gemini-3.6-flash
-GEMINI_VISION_MODEL=gemini-2.5-flash
-
-VLM_MODEL=HuggingFaceTB/SmolVLM-256M-Instruct
-VLM_DEVICE=auto
 
 JWT_SECRET_KEY=<long-random-secret>
 JWT_ALGORITHM=HS256
@@ -3244,7 +3287,9 @@ No manual creation of the `knowledge_gaps.user_id` column or foreign key is requ
 ## SECTION 29 — CURRENT MILESTONE STATUS
 
 ### Milestone 1 — Completed
-- Document upload for PDF, DOCX, TXT and CSV.
+- Document upload for PDF, DOCX, TXT, CSV, JPG, JPEG and PNG.
+- Hybrid document extraction with native text processing and OCR fallback.
+- PaddleOCR support for scanned PDFs, handwritten documents and standalone images.
 - Extraction and chunking.
 - SentenceTransformer embeddings.
 - ChromaDB persistence.
