@@ -1,8 +1,9 @@
 /*
  * QueryNest Milestone 4 Analytics Service
  *
- * Uses the ACTUAL FastAPI M4 endpoints. No fabricated mock analytics are
- * returned here because the backend already provides real telemetry.
+ * Fast analytics metrics are loaded independently from semantic query themes.
+ * This prevents SentenceTransformer/theme clustering from blocking the
+ * initial Analytics dashboard render.
  */
 
 const API_BASE_URL = (
@@ -49,11 +50,14 @@ function confidencePercent(value) {
   return Math.max(0, Math.min(100, Number(value) * 100));
 }
 
+/**
+ * Loads the fast analytics endpoints only.
+ * Common Query Themes are deliberately NOT included here.
+ */
 export async function getAnalytics() {
-  const [overview, queryTypes, queryThemes] = await Promise.all([
+  const [overview, queryTypes] = await Promise.all([
     fetchJson('/analytics/overview'),
     fetchJson('/analytics/query-types'),
-    fetchJson('/analytics/query-themes'),
   ]);
 
   const total = Number(overview?.total_queries || 0);
@@ -83,8 +87,16 @@ export async function getAnalytics() {
       avgResponseTime: { value: overview?.average_response_time ?? null },
     },
     queryTypes: queryTypeData,
-    queryThemes: Array.isArray(queryThemes) ? queryThemes : [],
   };
+}
+
+/**
+ * Loads semantic Common Query Themes independently.
+ * This endpoint may be slower because it can use SentenceTransformer.
+ */
+export async function getQueryThemes() {
+  const queryThemes = await fetchJson('/analytics/query-themes');
+  return Array.isArray(queryThemes) ? queryThemes : [];
 }
 
 export async function getKnowledgeGaps() {
@@ -117,3 +129,4 @@ export function downloadCsv(filename, rows) {
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
 }
+
