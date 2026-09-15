@@ -193,6 +193,17 @@ export default function ChatPage() {
     };
 
 
+  /*
+   * Retrieval results can use the same identifier fields
+   * as persisted source objects. Reuse the same matching
+   * logic so Context Inspector can restore the full result
+   * after a conversation is reopened.
+   */
+  const getResultIdentifier =
+    (result) =>
+      getSourceIdentifier(result);
+
+
   const normalizeMessageMetadata =
     (metadata) => {
 
@@ -384,10 +395,7 @@ export default function ChatPage() {
             (result) => {
 
               const resultIdentifier =
-                result?.chunk_id ||
-                result?.id ||
-                result?.source ||
-                null;
+                getResultIdentifier(result);
 
               return (
                 String(
@@ -1226,10 +1234,7 @@ export default function ChatPage() {
                 (result) => {
 
                   const resultIdentifier =
-                    result?.chunk_id ||
-                    result?.id ||
-                    result?.source ||
-                    null;
+                    getResultIdentifier(result);
 
                   return (
                     String(
@@ -1377,10 +1382,7 @@ export default function ChatPage() {
             (result) => {
 
               const resultIdentifier =
-                result?.chunk_id ||
-                result?.id ||
-                result?.source ||
-                null;
+                getResultIdentifier(result);
 
               return (
                 String(

@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import tkinter as tk
 from tkinter import filedialog
 
@@ -452,57 +453,1037 @@ def extract_csv(file_path):
     return text
 
 # Image extraction
+
+
+def _as_float(value):
+    """Safely coerce OCR geometry values to float."""
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _bbox_from_block(block):
+    """Return a normalized rectangular bbox from OCR geometry."""
+    x1 = _as_float(block.get("x1"))
+    y1 = _as_float(block.get("y1"))
+    x2 = _as_float(block.get("x2"))
+    y2 = _as_float(block.get("y2"))
+
+    if None not in (x1, y1, x2, y2):
+        return [
+            [min(x1, x2), min(y1, y2)],
+            [max(x1, x2), min(y1, y2)],
+            [max(x1, x2), max(y1, y2)],
+            [min(x1, x2), max(y1, y2)],
+        ]
+
+    raw_bbox = block.get("bbox")
+    if raw_bbox is None:
+        return None
+
+    points = []
+    try:
+        for point in raw_bbox:
+            if len(point) < 2:
+                continue
+            px = _as_float(point[0])
+            py = _as_float(point[1])
+            if px is not None and py is not None:
+                points.append([px, py])
+    except (TypeError, ValueError):
+        return None
+
+    if not points:
+        return None
+
+    xs = [point[0] for point in points]
+    ys = [point[1] for point in points]
+
+    return [
+        [min(xs), min(ys)],
+        [max(xs), min(ys)],
+        [max(xs), max(ys)],
+        [min(xs), max(ys)],
+    ]
+
+
+def _block_geometry(block):
+    """Return stable scalar geometry for an OCR block."""
+    bbox = _bbox_from_block(block)
+    if not bbox:
+        return None
+
+    xs = [point[0] for point in bbox]
+    ys = [point[1] for point in bbox]
+
+    x1 = min(xs)
+    y1 = min(ys)
+    x2 = max(xs)
+    y2 = max(ys)
+
+    return {
+        "bbox": bbox,
+        "x1": x1,
+        "y1": y1,
+        "x2": x2,
+        "y2": y2,
+        "cx": (x1 + x2) / 2.0,
+        "cy": (y1 + y2) / 2.0,
+        "width": max(0.0, x2 - x1),
+        "height": max(0.0, y2 - y1),
+    }
+
+
+def _median(values, default=0.0):
+    values = [float(value) for value in values if value is not None]
+    if not values:
+        return float(default)
+    values.sort()
+    middle = len(values) // 2
+    if len(values) % 2:
+        return values[middle]
+    return (values[middle - 1] + values[middle]) / 2.0
+
+
+def _is_bullet_item(text):
+    """Detect common OCR bullet/list prefixes generically."""
+    stripped = str(text or "").strip()
+    return stripped.startswith((
+        "•", "·", "◦", "▪", "‣", "⁃", "-", "–", "—", "*"
+    ))
+
+
+def _strip_bullet(text):
+    stripped = str(text or "").strip()
+    return re.sub(r"^[•·◦▪‣⁃\-*–—\s]+", "", stripped).strip()
+
+
+def _is_numbered_heading(text):
+    stripped = str(text or "").strip()
+    if not stripped or _is_bullet_item(stripped):
+        return False
+    return bool(re.match(r"^\s*\d{1,2}\s*[.)]\s+\S+", stripped))
+
+
+def _looks_like_heading(block, median_height):
+    """
+    Detect a section/title-like OCR block without knowing the document domain.
+
+    Numbered headings are strongest.  Other short, visually larger title-like
+    lines are accepted conservatively so handwritten/non-numbered notes work
+    without requiring document-specific keywords.
+    """
+    text = str(block.get("text") or "").strip()
+    if not text or _is_bullet_item(text):
+        return False
+    if _is_numbered_heading(text):
+        return True
+
+    geometry = block.get("geometry") or {}
+    height = float(geometry.get("height") or 0.0)
+    if median_height <= 0.0 or height < median_height * 1.20:
+        return False
+
+    if len(text) > 90 or len(text.split()) > 14:
+        return False
+
+    if text.endswith((".", ",", ";", ":")):
+        return False
+
+    # Title-like text usually has multiple words with relatively little
+    # punctuation.  Allow question-mark headings such as "What is ML?".
+    alpha = [char for char in text if char.isalpha()]
+    if not alpha:
+        return False
+
+    upper_ratio = sum(char.isupper() for char in alpha) / len(alpha)
+    title_case_words = sum(
+        1 for word in text.split()
+        if word and word[0].isupper()
+    )
+
+    return (
+        upper_ratio >= 0.45
+        or title_case_words >= max(1, len(text.split()) // 2)
+        or len(text.split()) <= 5
+    )
+
+
+def _y_overlap_ratio(a, b):
+    ag = a.get("geometry") or {}
+    bg = b.get("geometry") or {}
+    if not ag or not bg:
+        return 0.0
+
+    overlap = max(
+        0.0,
+        min(float(ag["y2"]), float(bg["y2"]))
+        - max(float(ag["y1"]), float(bg["y1"])),
+    )
+    denom = max(
+        1.0,
+        min(float(ag["height"]), float(bg["height"])),
+    )
+    return overlap / denom
+
+
+def _horizontal_overlap_ratio(a, b):
+    ag = a.get("geometry") or {}
+    bg = b.get("geometry") or {}
+    if not ag or not bg:
+        return 0.0
+
+    overlap = max(
+        0.0,
+        min(float(ag["x2"]), float(bg["x2"]))
+        - max(float(ag["x1"]), float(bg["x1"])),
+    )
+    denom = max(
+        1.0,
+        min(float(ag["width"]), float(bg["width"])),
+    )
+    return overlap / denom
+
+
+def _has_strong_column_split(left_blocks, right_blocks, image_width):
+    """Check whether two x-groups are genuinely separate visual columns."""
+    if len(left_blocks) < 2 or len(right_blocks) < 2:
+        return False
+
+    # Two real columns normally have text at overlapping vertical positions.
+    overlap_pairs = 0
+    total_pairs = 0
+    for left in left_blocks:
+        for right in right_blocks:
+            total_pairs += 1
+            if _y_overlap_ratio(left, right) >= 0.15:
+                overlap_pairs += 1
+
+    if total_pairs == 0:
+        return False
+
+    overlap_ratio = overlap_pairs / total_pairs
+
+    left_y1 = min(
+        float((block.get("geometry") or {}).get("y1") or 0.0)
+        for block in left_blocks
+    )
+    left_y2 = max(
+        float((block.get("geometry") or {}).get("y2") or 0.0)
+        for block in left_blocks
+    )
+    right_y1 = min(
+        float((block.get("geometry") or {}).get("y1") or 0.0)
+        for block in right_blocks
+    )
+    right_y2 = max(
+        float((block.get("geometry") or {}).get("y2") or 0.0)
+        for block in right_blocks
+    )
+
+    total_span = max(1.0, max(left_y2, right_y2) - min(left_y1, right_y1))
+    common_span = max(
+        0.0,
+        min(left_y2, right_y2) - max(left_y1, right_y1),
+    )
+    vertical_span_ratio = common_span / total_span
+
+    return overlap_ratio >= 0.10 and vertical_span_ratio >= 0.18
+
+
+def _assign_visual_columns(blocks, image_width):
+    """
+    Infer visual columns adaptively from OCR geometry.
+
+    Unlike the previous implementation, this does not blindly trust the OCR
+    engine's column labels.  It detects strong vertical whitespace between
+    x-center clusters and only accepts a split when both sides show evidence
+    of independently populated, vertically overlapping regions.
+
+    This is deliberately domain-agnostic and supports one-column handwritten
+    notes, two-column study notes, and multi-panel screenshots.
+    """
+    geometric = [
+        block for block in blocks
+        if block.get("geometry")
+        and block["geometry"].get("cx") is not None
+    ]
+
+    if len(geometric) < 4 or image_width <= 0:
+        for block in blocks:
+            block["visual_column"] = 0
+        return
+
+    ordered = sorted(
+        geometric,
+        key=lambda item: float(item["geometry"]["cx"]),
+    )
+
+    centers = [float(block["geometry"]["cx"]) for block in ordered]
+    widths = [
+        float(block["geometry"].get("width") or 0.0)
+        for block in ordered
+        if float(block["geometry"].get("width") or 0.0) > 0
+    ]
+    median_width = _median(widths, image_width * 0.04)
+
+    # A genuine column gap is usually much wider than a text block and also
+    # occupies a meaningful fraction of the image width.
+    # Keep the gap test relative to the page width as well as text size.
+    # A page can have very wide text boxes in each column; multiplying that
+    # width by a large factor would incorrectly suppress a genuine column
+    # break.
+    gap_threshold = min(
+        image_width * 0.18,
+        max(image_width * 0.08, median_width * 1.6),
+    )
+
+    candidate_indices = [
+        index
+        for index in range(len(centers) - 1)
+        if centers[index + 1] - centers[index] >= gap_threshold
+    ]
+
+    if not candidate_indices:
+        for block in blocks:
+            block["visual_column"] = 0
+        return
+
+    # Evaluate candidate cuts, preferring the strongest gaps first.
+    candidates = sorted(
+        candidate_indices,
+        key=lambda index: centers[index + 1] - centers[index],
+        reverse=True,
+    )[:3]
+
+    accepted = []
+    for cut in sorted(candidates):
+        left = ordered[: cut + 1]
+        right = ordered[cut + 1 :]
+        if _has_strong_column_split(left, right, image_width):
+            accepted.append(cut)
+
+    if not accepted:
+        for block in blocks:
+            block["visual_column"] = 0
+        return
+
+    # Avoid producing tiny columns.  At most four visual columns are retained.
+    boundaries = sorted(set(accepted))
+    group_ranges = []
+    start = 0
+    for boundary in boundaries:
+        group_ranges.append(ordered[start : boundary + 1])
+        start = boundary + 1
+    group_ranges.append(ordered[start:])
+
+    group_ranges = [group for group in group_ranges if group]
+
+    if len(group_ranges) < 2 or len(group_ranges) > 4:
+        for block in blocks:
+            block["visual_column"] = 0
+        return
+
+    for column_id, group in enumerate(group_ranges):
+        for block in group:
+            block["visual_column"] = column_id
+
+    # Blocks without usable geometry follow their nearest neighboring block.
+    for block in blocks:
+        if "visual_column" in block:
+            continue
+        block["visual_column"] = 0
+
+
+def _same_visual_column(a, b):
+    return a.get("visual_column", 0) == b.get("visual_column", 0)
+
+
+def _spatially_related_to_heading(heading, block, column_blocks, median_height):
+    """Decide whether a block plausibly belongs below a heading."""
+    hg = heading.get("geometry") or {}
+    bg = block.get("geometry") or {}
+    if not hg or not bg:
+        return True
+
+    # Never pull content located clearly above the heading.
+    if float(bg["y1"]) < float(hg["y2"]) - max(2.0, median_height * 0.30):
+        return False
+
+    column_width = 0.0
+    if column_blocks:
+        x1 = min(
+            float((item.get("geometry") or {}).get("x1") or 0.0)
+            for item in column_blocks
+            if item.get("geometry")
+        )
+        x2 = max(
+            float((item.get("geometry") or {}).get("x2") or 0.0)
+            for item in column_blocks
+            if item.get("geometry")
+        )
+        column_width = max(1.0, x2 - x1)
+
+    overlap = _horizontal_overlap_ratio(heading, block)
+    center_gap = abs(float(bg["cx"]) - float(hg["cx"]))
+
+    horizontal_ok = (
+        overlap >= 0.08
+        or center_gap <= max(
+            column_width * 0.35,
+            float(hg["width"]) * 1.6,
+        )
+    )
+
+    if not horizontal_ok:
+        return False
+
+    # Very large vertical gaps are fine for long sections, but an unrelated
+    # visually separated region should not be pulled into the section.
+    vertical_gap = max(
+        0.0,
+        float(bg["y1"]) - float(hg["y2"]),
+    )
+    max_reasonable_gap = max(
+        median_height * 8.0,
+        column_width * 0.35,
+    )
+
+    if vertical_gap > max_reasonable_gap:
+        # Keep numbered/bullet content if it still aligns horizontally.  This
+        # preserves long handwritten lists while avoiding distant callouts.
+        text = str(block.get("text") or "").strip()
+        return _is_bullet_item(text) or bool(re.match(r"^\d+[.)]", text))
+
+    return True
+
+
+def _is_obvious_decorative_fragment(text):
+    """Conservative generic detector for OCR-only decorative fragments."""
+    stripped = str(text or "").strip()
+    if not stripped:
+        return True
+
+    if stripped.startswith(("\"", "“", "”", "‘", "’")):
+        return True
+
+    # Very short standalone fragments are often pieces of a callout, but keep
+    # numbers and bullet items because they can be legitimate list content.
+    if len(stripped) <= 5 and not re.match(r"^(?:\d+[.)]?|[•·◦▪‣⁃\-*–—])", stripped):
+        return True
+
+    return False
+
+
+def _clean_list_section_blocks(heading, body_blocks):
+    """
+    Preserve list items and their wrapped continuations while dropping clearly
+    unrelated decorative OCR fragments.
+
+    This does not contain any domain-specific vocabulary.
+    """
+    if not body_blocks:
+        return []
+
+    bullet_blocks = [
+        block for block in body_blocks
+        if _is_bullet_item(block.get("text"))
+    ]
+
+    if len(bullet_blocks) < 2:
+        return body_blocks
+
+    ratio = len(bullet_blocks) / max(1, len(body_blocks))
+    if ratio < 0.40:
+        return body_blocks
+
+    cleaned = []
+    median_height = _median(
+        [
+            (block.get("geometry") or {}).get("height")
+            for block in body_blocks
+            if block.get("geometry")
+        ],
+        10.0,
+    )
+
+    for block in body_blocks:
+        text = str(block.get("text") or "").strip()
+        if not text:
+            continue
+
+        if _is_bullet_item(text):
+            cleaned.append(block)
+            continue
+
+        if _is_obvious_decorative_fragment(text):
+            continue
+
+        if not cleaned:
+            continue
+
+        previous = cleaned[-1]
+        if not _is_bullet_item(previous.get("text")):
+            continue
+
+        if not _same_visual_column(previous, block):
+            continue
+
+        pg = previous.get("geometry") or {}
+        bg = block.get("geometry") or {}
+        if not pg or not bg:
+            continue
+
+        vertical_gap = float(bg["y1"]) - float(pg["y2"])
+        x_gap = abs(float(bg["cx"]) - float(pg["cx"]))
+
+        allowed_gap = max(2.0 * median_height, 24.0)
+        allowed_x = max(
+            float(pg["width"]) * 0.45,
+            median_height * 3.0,
+        )
+
+        starts_lower = text[:1].islower()
+        short_fragment = len(text) <= 80
+        no_new_heading = not _looks_like_heading(
+            block,
+            median_height,
+        )
+
+        if (
+            0.0 <= vertical_gap <= allowed_gap
+            and x_gap <= allowed_x
+            and short_fragment
+            and no_new_heading
+            and starts_lower
+        ):
+            cleaned.append(block)
+
+    return cleaned
+
+
+def _split_implicit_sections(column_blocks, image_height):
+    """Fallback grouping for columns without recognizable headings."""
+    if not column_blocks:
+        return []
+
+    heights = [
+        (block.get("geometry") or {}).get("height")
+        for block in column_blocks
+        if block.get("geometry")
+    ]
+    median_height = _median(heights, max(8.0, image_height * 0.01))
+    gap_threshold = max(
+        median_height * 2.2,
+        image_height * 0.012,
+    )
+
+    groups = []
+    current = [column_blocks[0]]
+
+    for previous, block in zip(column_blocks, column_blocks[1:]):
+        pg = previous.get("geometry") or {}
+        bg = block.get("geometry") or {}
+        if not pg or not bg:
+            current.append(block)
+            continue
+
+        gap = float(bg["y1"]) - float(pg["y2"])
+        if gap > gap_threshold and len(current) >= 1:
+            groups.append(current)
+            current = [block]
+        else:
+            current.append(block)
+
+    if current:
+        groups.append(current)
+
+    return groups
+
+
+def _build_visual_sections(blocks, image_width, image_height):
+    """
+    Adaptive, domain-agnostic 2-D image layout analysis.
+
+    The algorithm deliberately avoids document-specific rules.  It first
+    detects strong visual columns, then detects heading-like blocks inside each
+    column, and finally associates nearby text/bullets with that heading.  If a
+    layout does not expose reliable headings, it falls back to vertical groups.
+
+    This handles single-column handwriting, multi-column notes, side-by-side
+    panels, screenshots, and mixed-layout study images without requiring a new
+    extractor rule for each document.
+    """
+    normalized = []
+
+    for original_index, raw in enumerate(blocks or []):
+        if not isinstance(raw, dict):
+            continue
+
+        content = str(raw.get("text") or "").strip()
+        if not content:
+            continue
+
+        geometry = _block_geometry(raw)
+        block = dict(raw)
+        block["text"] = content
+        block["geometry"] = geometry
+        block["original_index"] = original_index
+        normalized.append(block)
+
+    if not normalized:
+        return []
+
+    heights = [
+        (block.get("geometry") or {}).get("height")
+        for block in normalized
+        if block.get("geometry")
+    ]
+    median_height = _median(heights, max(8.0, image_height * 0.01))
+
+    _assign_visual_columns(normalized, image_width)
+
+    # A very wide title/header is treated as a global region rather than being
+    # forced into a left/right column.
+    for block in normalized:
+        geometry = block.get("geometry") or {}
+        width = float(geometry.get("width") or 0.0)
+        block["is_global"] = (
+            image_width > 0
+            and width >= image_width * 0.68
+            and not _is_bullet_item(block.get("text"))
+        )
+        block["is_heading"] = _looks_like_heading(
+            block,
+            median_height,
+        )
+
+    columns = {}
+    global_blocks = []
+
+    for block in normalized:
+        if block.get("is_global"):
+            global_blocks.append(block)
+        else:
+            columns.setdefault(
+                block.get("visual_column", 0),
+                [],
+            ).append(block)
+
+    for column_blocks in columns.values():
+        column_blocks.sort(
+            key=lambda item: (
+                float((item.get("geometry") or {}).get("y1") or 0.0),
+                float((item.get("geometry") or {}).get("x1") or 0.0),
+                item.get("original_index", 0),
+            )
+        )
+
+    groups = []
+
+    # Keep a global title/header separate.  This is useful for documents whose
+    # actual sections start below the title and also avoids cross-column leaks.
+    for block in sorted(
+        global_blocks,
+        key=lambda item: (
+            float((item.get("geometry") or {}).get("y1") or 0.0),
+            float((item.get("geometry") or {}).get("x1") or 0.0),
+        ),
+    ):
+        groups.append({
+            "heading": None,
+            "blocks": [block],
+            "first_y": float((block.get("geometry") or {}).get("y1") or 0.0),
+            "visual_column": -1,
+        })
+
+    for column_id, column_blocks in sorted(columns.items(), key=lambda pair: pair[0]):
+        heading_positions = [
+            index
+            for index, block in enumerate(column_blocks)
+            if block.get("is_heading")
+        ]
+
+        title_only_index = None
+        if len(heading_positions) == 1:
+            only_index = heading_positions[0]
+            only_heading = column_blocks[only_index]
+            only_text = str(only_heading.get("text") or "").strip()
+            only_y = float((only_heading.get("geometry") or {}).get("y1") or 0.0)
+            title_like = (
+                not _is_numbered_heading(only_text)
+                and image_height > 0
+                and only_y <= image_height * 0.12
+            )
+            if title_like:
+                title_only_index = only_index
+                heading_positions = []
+                groups.append({
+                    "heading": None,
+                    "blocks": [only_heading],
+                    "first_y": only_y,
+                    "visual_column": column_id,
+                })
+
+        content_blocks_for_fallback = (
+            [
+                block
+                for index, block in enumerate(column_blocks)
+                if index != title_only_index
+            ]
+            if title_only_index is not None
+            else column_blocks
+        )
+
+        if heading_positions:
+            for position_index, heading_position in enumerate(heading_positions):
+                heading = column_blocks[heading_position]
+                next_heading_position = (
+                    heading_positions[position_index + 1]
+                    if position_index + 1 < len(heading_positions)
+                    else len(column_blocks)
+                )
+
+                candidate_body = column_blocks[
+                    heading_position + 1 : next_heading_position
+                ]
+
+                section_body = []
+                for block in candidate_body:
+                    if _spatially_related_to_heading(
+                        heading,
+                        block,
+                        column_blocks,
+                        median_height,
+                    ):
+                        section_body.append(block)
+
+                cleaned_body = _clean_list_section_blocks(
+                    heading,
+                    section_body,
+                )
+
+                final_blocks = [heading] + cleaned_body
+
+                if len(final_blocks) <= 1:
+                    continue
+
+                heading_geometry = heading.get("geometry") or {}
+                groups.append({
+                    "heading": heading,
+                    "blocks": final_blocks,
+                    "first_y": float(heading_geometry.get("y1") or 0.0),
+                    "visual_column": column_id,
+                })
+        else:
+            for implicit_group in _split_implicit_sections(
+                content_blocks_for_fallback,
+                image_height=image_height,
+            ):
+                if implicit_group:
+                    groups.append({
+                        "heading": None,
+                        "blocks": implicit_group,
+                        "first_y": float(
+                            (implicit_group[0].get("geometry") or {}).get("y1") or 0.0
+                        ),
+                        "visual_column": column_id,
+                    })
+
+    # If there are headings, some non-heading blocks can still remain outside
+    # a section.  Attach only close blocks to the nearest same-column section;
+    # do not globally merge them, which is what caused the earlier leakage.
+    consumed_ids = {
+        id(block)
+        for group in groups
+        for block in group.get("blocks") or []
+    }
+
+    for column_id, column_blocks in sorted(columns.items(), key=lambda pair: pair[0]):
+        leftovers = [
+            block
+            for block in column_blocks
+            if id(block) not in consumed_ids
+            and not block.get("is_heading")
+        ]
+
+        for block in leftovers:
+            if _is_obvious_decorative_fragment(block.get("text")):
+                continue
+
+            geometry = block.get("geometry") or {}
+            if not geometry:
+                continue
+
+            # Attach to the nearest section only when the vertical distance is
+            # small and the block remains in the same visual column.
+            best_group = None
+            best_distance = float("inf")
+
+            for group in groups:
+                if group.get("visual_column") != column_id:
+                    continue
+
+                group_blocks = group.get("blocks") or []
+                if not group_blocks:
+                    continue
+
+                last_block = group_blocks[-1]
+                last_geometry = last_block.get("geometry") or {}
+                if not last_geometry:
+                    continue
+
+                if float(geometry.get("y1")) < float(last_geometry.get("y2")):
+                    continue
+
+                distance = float(geometry.get("y1")) - float(last_geometry.get("y2"))
+                if distance < best_distance:
+                    best_distance = distance
+                    best_group = group
+
+            if best_group is not None:
+                allowed = max(
+                    median_height * 4.0,
+                    image_height * 0.03,
+                )
+                if best_distance <= allowed:
+                    best_group["blocks"].append(block)
+                    consumed_ids.add(id(block))
+                    continue
+
+            # Preserve otherwise-unassigned, meaningful OCR as its own compact
+            # section instead of dropping it.
+            groups.append({
+                "heading": None,
+                "blocks": [block],
+                "first_y": float(geometry.get("y1") or 0.0),
+                "visual_column": column_id,
+            })
+            consumed_ids.add(id(block))
+
+    groups.sort(
+        key=lambda group: (
+            float(group.get("first_y") or 0.0),
+            int(group.get("visual_column", 0)),
+        )
+    )
+
+    return groups
+
+
+def _aggregate_group_bbox(group):
+    """Create a flat aggregate bbox for a logical section."""
+    points = []
+
+    for block in group.get("blocks") or []:
+        geometry = block.get("geometry")
+        if not geometry:
+            continue
+        points.extend([
+            [geometry["x1"], geometry["y1"]],
+            [geometry["x2"], geometry["y1"]],
+            [geometry["x2"], geometry["y2"]],
+            [geometry["x1"], geometry["y2"]],
+        ])
+
+    if not points:
+        return None
+
+    x1 = min(point[0] for point in points)
+    y1 = min(point[1] for point in points)
+    x2 = max(point[0] for point in points)
+    y2 = max(point[1] for point in points)
+
+    return [
+        [float(x1), float(y1)],
+        [float(x2), float(y1)],
+        [float(x2), float(y2)],
+        [float(x1), float(y2)],
+    ]
+
+
+def _section_content(section):
+    """Convert a logical section into clean text while preserving reading order."""
+    blocks = section.get("blocks") or []
+    if not blocks:
+        return "", "OCR Section", []
+
+    heading = section.get("heading")
+    heading_text = (
+        str(heading.get("text") or "").strip()
+        if heading
+        else ""
+    )
+
+    body = []
+    confidences = []
+    source_indices = []
+
+    for block in blocks:
+        text = str(block.get("text") or "").strip()
+        if not text:
+            continue
+
+        if heading is not None and block is heading:
+            confidences.append(float(block.get("confidence") or 0.0))
+            source_indices.append(block.get("original_index"))
+            continue
+
+        body.append(text)
+        confidences.append(float(block.get("confidence") or 0.0))
+        source_indices.append(block.get("original_index"))
+
+    lines = []
+    if heading_text:
+        lines.append(heading_text)
+    lines.extend(body)
+
+    return "\n".join(lines).strip(), (heading_text or "OCR Section"), source_indices
+
+
 def extract_image(file_path):
+    """
+    Extract a standalone image into adaptive, layout-aware logical sections.
+
+    Only the JPG/JPEG/PNG path uses this layout logic.  PDF, DOCX, TXT, and
+    CSV extraction paths remain unchanged.
+    """
     from app.services.ocr_service import ocr_service
 
-    with open(
-        file_path,
-        "rb"
-    ) as file:
+    with open(file_path, "rb") as file:
         image_data = file.read()
 
     try:
-        ocr_result = ocr_service.run_ocr_on_image(
-            image_data
+        ocr_result = ocr_service.run_ocr_on_image(image_data)
+
+        if not isinstance(ocr_result, dict):
+            raise ValueError("OCR service returned an invalid result.")
+
+        ocr_text = str(ocr_result.get("text") or "").strip()
+        confidence = float(ocr_result.get("confidence") or 0.0)
+        blocks = ocr_result.get("blocks") or []
+
+        if not ocr_text and not blocks:
+            raise ValueError("No readable text detected in image.")
+
+        filename = os.path.basename(file_path)
+        image_width = int(ocr_result.get("image_width") or 0)
+        image_height = int(ocr_result.get("image_height") or 0)
+
+        sections = _build_visual_sections(
+            blocks,
+            image_width=image_width,
+            image_height=image_height,
         )
 
-        ocr_text = (
-            ocr_result.get("text", "")
-            if isinstance(ocr_result, dict)
-            else ""
-        )
+        image_records = []
 
-        confidence = (
-            ocr_result.get(
-                "confidence",
-                0.0
+        for section_index, section in enumerate(sections):
+            content, section_title, source_indices = _section_content(section)
+            if not content:
+                continue
+
+            section_blocks = section.get("blocks") or []
+            section_confidences = [
+                float(block.get("confidence") or 0.0)
+                for block in section_blocks
+                if block.get("text")
+            ]
+            section_confidence = (
+                sum(section_confidences) / len(section_confidences)
+                if section_confidences
+                else confidence
             )
-            if isinstance(ocr_result, dict)
-            else 0.0
-        )
 
-        ocr_text = ocr_text.strip()
+            metadata = {
+                "image_index": section_index,
+                "source_type": "image_ocr_section",
+                "extraction_method": "ppocrv5_adaptive_layout",
+                "ocr_confidence": round(
+                    max(0.0, min(section_confidence, 1.0)),
+                    3,
+                ),
+                "section_heading": section_title,
+                "ocr_block_count": len(section_blocks),
+                "image_width": image_width,
+                "image_height": image_height,
+            }
 
-        if not ocr_text:
-            raise ValueError(
-                "No readable text detected in image."
+            section_bbox = _aggregate_group_bbox(section)
+            if section_bbox is not None:
+                # ChromaDB-safe representation; exact geometry remains useful
+                # for diagnostics without storing a nested metadata structure.
+                metadata["bbox"] = str(section_bbox)
+
+            if source_indices:
+                metadata["source_block_indices"] = ",".join(
+                    str(index)
+                    for index in source_indices
+                    if index is not None
+                )
+
+            visual_column = section.get("visual_column")
+            if visual_column is not None:
+                metadata["layout_column"] = str(visual_column)
+
+            image_records.append(
+                {
+                    "content": (
+                        f"File Name: {filename}\n"
+                        f"[Image OCR Section {section_index + 1}]\n"
+                        f"{content}"
+                    ),
+                    "metadata": metadata,
+                }
+            )
+
+        # Conservative fallback for genuinely unusual layouts.  Preserve all
+        # OCR text as one chunk rather than creating many tiny, unreliable
+        # blocks.  This is what makes the extractor resilient to new layouts.
+        if not image_records and ocr_text:
+            image_records.append(
+                {
+                    "content": (
+                        f"File Name: {filename}\n"
+                        "[Image OCR Fallback]\n"
+                        f"{ocr_text}"
+                    ),
+                    "metadata": {
+                        "image_index": 0,
+                        "source_type": "image_ocr_fallback",
+                        "extraction_method": "ppocrv5_fallback",
+                        "ocr_confidence": round(
+                            max(0.0, min(confidence, 1.0)),
+                            3,
+                        ),
+                        "ocr_block_count": len(blocks),
+                        "image_width": image_width,
+                        "image_height": image_height,
+                    },
+                }
             )
 
         logger.info(
-            "[OCR] Extracted %d characters from '%s' "
-            "(confidence %.2f)",
-            len(ocr_text),
-            os.path.basename(file_path),
-            confidence
+            "[OCR] Image '%s': %d OCR blocks -> %d adaptive sections",
+            filename,
+            len(blocks),
+            len(image_records),
         )
 
         return {
-            "text": (
-                "[OCR Extracted Text "
-                f"(Confidence: {confidence:.2f})]\n"
-                f"{ocr_text}"
-            ),
-            "images": []
+            # Image content is stored through `images`; keeping top-level text
+            # empty avoids creating an extra flattened OCR chunk.
+            "text": "",
+            "images": image_records,
+            "ocr": {
+                "confidence": confidence,
+                "blocks_count": len(blocks),
+                "sections_count": len(image_records),
+                "layout_aware": bool(image_records),
+            },
         }
 
     except Exception as error:

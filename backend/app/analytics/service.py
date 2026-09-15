@@ -120,6 +120,7 @@ def get_average_confidence(
         .filter(
             QueryAnalytics.user_id == user_id,
             QueryAnalytics.query_type != "general",
+            QueryAnalytics.response_status == "answered",
             QueryAnalytics.confidence_score.isnot(None),
         )
         .scalar()

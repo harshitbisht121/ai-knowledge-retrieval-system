@@ -274,11 +274,58 @@ def query_documents(
                 or ""
             ).strip()
 
+        # ---------------------------------------------------------
+        # Detect retrieval answers that explicitly state that the
+        # knowledge base does not contain enough information.
+        #
+        # IMPORTANT:
+        # This applies only to retrieval queries.
+        # General LLM queries must remain:
+        #     confidence = NULL
+        #     response_status = "answered"
+        # ---------------------------------------------------------
+        retrieval_refusal = False
+
+        if route == "retrieval" and answer_text:
+            answer_lower = answer_text.lower()
+
+            refusal_patterns = (
+                "the retrieved documents do not contain",
+                "retrieved documents do not contain",
+                "the retrieved context does not contain",
+                "retrieved context does not contain",
+                "i don't have enough information",
+                "i do not have enough information",
+                "no information is available",
+                "no information is provided",
+                "the available context does not contain",
+                "the available context does not provide",
+                "the context does not contain",
+                "cannot answer from the available context",
+                "can't answer from the available context",
+                "not enough information in the available knowledge base",
+            )
+
+            retrieval_refusal = any(
+                pattern in answer_lower
+                for pattern in refusal_patterns
+            )
+
         # A clarification request is not a resolved answer.
         if clarification_required:
             response_status = "unanswered"
+
+        elif retrieval_refusal:
+            # RAG query could not be answered from retrieved evidence.
+            response_status = "unanswered"
+            confidence_score = 0.0
+
+            if isinstance(response_result, dict):
+                response_result["confidence"] = 0.0
+
         elif answer_text:
             response_status = "answered"
+
         else:
             response_status = "unanswered"
 
@@ -329,6 +376,13 @@ def query_documents(
             # query path. Roll back any failed analytics transaction.
             db.rollback()
 
+        # General and clarification routes must never expose retrieval
+        # artifacts. The workflow already avoids retrieval for these routes,
+        # but normalize the API payload here as an explicit contract.
+        api_retrieval = retrieval_result
+        if route != "retrieval":
+            api_retrieval = {"results": []}
+
         return {
             "success": True,
 
@@ -363,7 +417,7 @@ def query_documents(
                 clarification_question
             ),
 
-            "retrieval": retrieval_result,
+            "retrieval": api_retrieval,
 
             "response": response_result,
 

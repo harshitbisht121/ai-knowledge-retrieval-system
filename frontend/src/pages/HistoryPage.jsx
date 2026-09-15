@@ -128,14 +128,54 @@ export default function HistoryPage() {
                         ? JSON.parse(metadata)
                         : metadata;
 
-                    if (
+                    // Refusal answers are unanswered retrieval queries.
+                    // Older persisted messages may still contain the original
+                    // retrieval confidence, so derive the unanswered state
+                    // from the response text for this frontend-only history
+                    // page.
+                    const normalizedResponse =
+                      String(botResponseText || '')
+                        .trim()
+                        .toLowerCase();
+
+                    const refusalPatterns = [
+                      'the retrieved documents do not contain',
+                      'retrieved documents do not contain',
+                      'the retrieved context does not contain',
+                      'retrieved context does not contain',
+                      'i don\'t have enough information',
+                      'i do not have enough information',
+                      'no information is available',
+                      'no information is provided',
+                      'the available context does not contain',
+                      'the available context does not provide',
+                      'the context does not contain',
+                      'cannot answer from the available context',
+                      "can't answer from the available context",
+                      'not enough information in the available knowledge base',
+                    ];
+
+                    const isUnanswered =
+                      refusalPatterns.some((pattern) =>
+                        normalizedResponse.includes(pattern)
+                      );
+
+                    if (isUnanswered) {
+                      // Display unanswered retrieval responses as 0% and do
+                      // not include them in the average confidence.
+                      confidence = 0;
+                    } else if (
                       parsedMeta.confidence != null
                     ) {
                       confidence =
-                        parsedMeta.confidence;
+                        Number(parsedMeta.confidence);
 
-                      confidenceSum += confidence;
-                      confidenceCount++;
+                      if (Number.isFinite(confidence)) {
+                        confidenceSum += confidence;
+                        confidenceCount++;
+                      } else {
+                        confidence = null;
+                      }
                     }
 
                     if (
