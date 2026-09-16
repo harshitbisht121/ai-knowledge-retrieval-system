@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 
@@ -30,10 +31,25 @@ ALLOWED_EXTENSIONS = {
 # Maximum allowed upload size (10 MB).
 MAX_FILE_SIZE = 10 * 1024 * 1024
 
-# Allowed frontend origins for CORS.
-CORS_ALLOW_ORIGINS = [
+
+# -------------------------------------------------------------
+# CORS
+# -------------------------------------------------------------
+
+LOCAL_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:5174",
     "http://127.0.0.1:5174",
+]
+
+FRONTEND_URL = os.getenv("FRONTEND_URL", "").strip()
+
+CORS_ALLOW_ORIGINS = [
+    *LOCAL_ORIGINS,
+    *(
+        origin.strip()
+        for origin in FRONTEND_URL.split(",")
+        if origin.strip()
+    ),
 ]
