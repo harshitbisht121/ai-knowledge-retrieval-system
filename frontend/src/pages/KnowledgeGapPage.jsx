@@ -4,7 +4,6 @@ import './Milestone4.css';
 
 const FILTERS = [
   { id: 'all', label: 'All Gaps' },
-  { id: 'No relevant chunks', label: 'No Relevant Chunks' },
   { id: 'Low confidence', label: 'Low Confidence' },
   { id: 'Unanswered', label: 'Unanswered' },
 ];

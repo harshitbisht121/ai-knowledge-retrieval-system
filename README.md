@@ -135,7 +135,6 @@ AI-Based Knowledge Retrieval Platform with Query Resolution System/
 │   │   │   └── auth.py
 │   │   ├── models/
 │   │   │   ├── request_models.py
-│   │   │   ├── response_models.py
 │   │   │   ├── auth_models.py
 │   │   │   └── knowledge_base_schemas.py
 │   │   ├── rag/

@@ -7,7 +7,6 @@ export default function AdminDocuments({ onNavigateBack = () => {} }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notification, setNotification] = useState('');
-  const [deletingId, setDeletingId] = useState(null);
 
   const loadDocuments = async () => {
     setLoading(true);
@@ -79,51 +78,6 @@ export default function AdminDocuments({ onNavigateBack = () => {} }) {
     return `${size.toFixed(index === 0 ? 0 : 2)} ${
       units[index] || 'B'
     }`;
-  };
-
-  const handleDelete = async (documentId) => {
-    const confirmed = window.confirm(
-      'Are you sure you want to delete this document?'
-    );
-
-    if (!confirmed) {
-      return;
-    }
-
-    setDeletingId(documentId);
-    setError('');
-    setNotification('');
-
-    try {
-      await api.deleteAdminDocument(documentId);
-
-      setDocuments((previousDocuments) =>
-        previousDocuments.filter(
-          (document) =>
-            document.id !== documentId
-        )
-      );
-
-      setNotification(
-        'Document deleted successfully.'
-      );
-
-      setTimeout(() => {
-        setNotification('');
-      }, 3000);
-    } catch (err) {
-      console.error(
-        'Failed to delete document:',
-        err
-      );
-
-      setError(
-        err?.message ||
-          'Failed to delete the document. Please try again.'
-      );
-    } finally {
-      setDeletingId(null);
-    }
   };
 
   if (loading) {
@@ -207,7 +161,6 @@ export default function AdminDocuments({ onNavigateBack = () => {} }) {
               <th>Status</th>
               <th>Owner</th>
               <th>Created</th>
-              <th>Action</th>
             </tr>
           </thead>
 
@@ -215,7 +168,7 @@ export default function AdminDocuments({ onNavigateBack = () => {} }) {
             {documents.length === 0 ? (
               <tr>
                 <td
-                  colSpan="7"
+                  colSpan="6"
                   className="admin-empty"
                 >
                   No documents found.
@@ -278,23 +231,6 @@ export default function AdminDocuments({ onNavigateBack = () => {} }) {
                     )}
                   </td>
 
-                  {/* Action */}
-                  <td>
-                    <button
-                      type="button"
-                      className="btn btn-secondary"
-                      disabled={
-                        deletingId === document.id
-                      }
-                      onClick={() =>
-                        handleDelete(document.id)
-                      }
-                    >
-                      {deletingId === document.id
-                        ? 'Deleting...'
-                        : 'Delete'}
-                    </button>
-                  </td>
 
                 </tr>
               ))

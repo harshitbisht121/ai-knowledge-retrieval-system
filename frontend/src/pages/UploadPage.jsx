@@ -29,9 +29,18 @@ export default function UploadPage({ onStartChat }) {
     const interval = setInterval(fetchDocs, 3000);
     return () => clearInterval(interval);
   }, [documents]);
-
+  
   const handleDelete = async (id) => {
+    const confirmed = window.confirm(
+      'Are you sure you want to delete this document?'
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
     setDeletingId(id);
+
     try {
       await api.deleteDocument(id);
       setDocuments(prev => prev.filter(doc => doc.id !== id));

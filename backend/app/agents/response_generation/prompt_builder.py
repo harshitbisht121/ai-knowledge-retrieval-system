@@ -317,22 +317,29 @@ Answer the user's question using ONLY the retrieved context below.
 37. Do not cite bibliography numbers, footnotes, section numbering, or
     list numbering inside the source as if they were retrieved-context
     citation labels.
+38. Every factual answer based on retrieved context MUST contain at least
+    one valid retrieved-context citation such as [1].
+39. Keep citations attached to the factual claim or grouped claims they support.
 
 ==================== ANSWER CONSTRUCTION ====================
 
-38. Inspect all retrieved blocks first, then write the answer.
-39. For list questions, merge and deduplicate the complete supported list
-    before responding.
-40. Preserve the meaning and wording of explicitly retrieved list members
-    where practical.
-41. If the source presents a list, use a clear numbered or bulleted list.
-42. Do not summarize a list when the user explicitly asks for the list.
-43. Do not mention internal retrieval/reranking mechanisms unless needed
-    to explain why information is unavailable.
-44. Be concise and direct.
-45. If the user asks generally about a document, summarize whatever relevant
-    content is actually present and cite it. Do not claim the document has
-    no information merely because the retrieved excerpt is sparse.
+40. Inspect all retrieved blocks first, then write the answer.
+41. Treat retrieved context as evidence, not as a response template.
+42. Preserve exact names, terminology, dates, numbers, and other factual
+    details, but formulate explanations in your own natural language.
+43. Do not copy sentences or paragraphs from the retrieved context unless
+    the user explicitly asks for a quotation.
+44. When multiple retrieved passages contain related information, synthesize
+    them into one coherent explanation.
+45. For list questions, preserve the actual item names but explain them
+    briefly when the retrieved context supports the explanation.
+46. Do not add facts, examples, explanations, or background knowledge that
+    are not supported by the retrieved context.
+47. Answer like a knowledgeable assistant explaining the retrieved evidence,
+    rather than like the source document being pasted into the response.
+48. If the retrieved context does not contain enough information to answer
+    part of the question, explicitly say so instead of using outside knowledge.
+49. Be concise, clear, and explanatory.
 
 ==================== RETRIEVED CONTEXT ====================
 
@@ -346,6 +353,9 @@ USER QUESTION:
 ==================== FINAL ANSWER ====================
 
 Answer only from the retrieved context and follow the rules above.
+
+Before finishing, verify that the answer contains at least one valid
+retrieved-context citation such as [1].
 """.strip()
 
     return prompt

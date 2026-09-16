@@ -275,7 +275,6 @@ AI-Based Knowledge Retrieval Platform with Query Resolution System/
 │   │   ├── models/                              # API/data models
 │   │   │   ├── __init__.py
 │   │   │   ├── request_models.py                # Query + M3/M4 request validation
-│   │   │   ├── response_models.py               # API response models
 │   │   │   ├── auth_models.py                   # Login/register/profile/token models
 │   │   │   └── knowledge_base_schemas.py        # M4 knowledge-base API schemas
 │   │   │

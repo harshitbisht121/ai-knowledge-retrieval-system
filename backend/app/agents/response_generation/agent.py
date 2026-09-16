@@ -155,7 +155,6 @@ def _get_relevance_score(
     except (TypeError, ValueError):
         return None
 
-
 # ---------------------------------------------------------------------
 # Citation extraction
 # ---------------------------------------------------------------------
@@ -349,25 +348,49 @@ def _calculate_retrieval_quality(
     candidate_scores: list[float] = []
 
     for chunk in chunks:
-        score = _get_relevance_score(chunk)
+
+        score = _get_relevance_score(
+            chunk
+        )
+
         if score is not None:
-            candidate_scores.append(score)
+            candidate_scores.append(
+                score
+            )
 
     if not candidate_scores:
         return 0.0
 
     # Top-ranked evidence matters more than distant candidates.
-    candidate_scores.sort(reverse=True)
-    weights = (0.60, 0.25, 0.15)
+    candidate_scores.sort(
+        reverse=True
+    )
+
+    weights = (
+        0.60,
+        0.25,
+        0.15,
+    )
+
     weighted_total = 0.0
     weight_total = 0.0
 
-    for index, score in enumerate(candidate_scores[:3]):
+    for index, score in enumerate(
+        candidate_scores[:3]
+    ):
+
         weight = weights[index]
-        weighted_total += score * weight
+
+        weighted_total += (
+            score * weight
+        )
+
         weight_total += weight
 
-    return weighted_total / weight_total
+    return (
+        weighted_total
+        / weight_total
+    )
 
 
 def _estimate_confidence(
@@ -375,7 +398,7 @@ def _estimate_confidence(
     chunks: list[dict[str, Any] | str],
 ) -> float:
     """
-    Estimate grounded-answer confidence from: 
+    Estimate grounded-answer confidence from:
 
         1. Retrieval evidence quality.
         2. Citation coverage.
@@ -399,6 +422,7 @@ def _estimate_confidence(
     )
 
     if sources:
+
         # Citations are useful evidence of grounding, but they should not
         # dominate retrieval quality because an otherwise good answer can
         # occasionally omit a marker.
@@ -406,10 +430,14 @@ def _estimate_confidence(
             retrieval_quality * 0.80
             + citation_coverage * 0.20
         )
+
     else:
+
         # No recognizable citation: retain retrieval evidence but apply a
         # meaningful 20% grounding penalty instead of a fixed 0.15 score.
-        confidence = retrieval_quality * 0.80
+        confidence = (
+            retrieval_quality * 0.80
+        )
 
     return round(
         max(
@@ -450,9 +478,13 @@ def generate_response(
     # ---------------------------------------------------------------
 
     if (
-        not isinstance(question, str)
+        not isinstance(
+            question,
+            str,
+        )
         or not question.strip()
     ):
+
         return LLMResponse(
             answer="",
             sources=[],
@@ -467,7 +499,10 @@ def generate_response(
         chunk
         for chunk in (chunks or [])
         if (
-            isinstance(chunk, dict)
+            isinstance(
+                chunk,
+                dict,
+            )
             and str(
                 chunk.get(
                     "content",
@@ -476,7 +511,10 @@ def generate_response(
             ).strip()
         )
         or (
-            isinstance(chunk, str)
+            isinstance(
+                chunk,
+                str,
+            )
             and chunk.strip()
         )
     ]
@@ -493,11 +531,6 @@ def generate_response(
             confidence=0.0,
         )
 
-    # ---------------------------------------------------------------
-    # Build grounded prompt
-    # ---------------------------------------------------------------
-
-    print(f"[CHAT] Query entering LLM: {question}")
     prompt = build_prompt(
         question,
         valid_chunks,

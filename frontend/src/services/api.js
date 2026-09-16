@@ -100,7 +100,28 @@ async function parseResponse(response) {
         .join(', ');
     }
 
+    /*
+     * Hide provider-specific rate-limit information from the user.
+     *
+     * The original backend response is still preserved in error.data
+     * for debugging, so this does not remove useful diagnostic data.
+     */
+    const normalizedMessage = String(message).toLowerCase();
+
+    const isRateLimitError =
+      response.status === 429 ||
+      normalizedMessage.includes('rate limit reached') ||
+      normalizedMessage.includes('rate limit') ||
+      normalizedMessage.includes('too many requests') ||
+      normalizedMessage.includes('error code: 429');
+
+    if (isRateLimitError) {
+      message =
+        'The AI service is temporarily busy. Please try again in a few minutes.';
+    }
+
     const error = new Error(message);
+
     error.status = response.status;
     error.data = data;
 

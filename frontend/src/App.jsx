@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Sidebar from './components/Sidebar';
 import UploadPage from './pages/UploadPage';
 import ChatPage from './pages/ChatPage';
@@ -20,6 +20,14 @@ function App() {
   const [activeTab, setActiveTab] = useState('upload');
   const [adminUserId, setAdminUserId] = useState(null);
   const [mockMode] = useState(api.getMockMode());
+
+  // Keep the initial page synchronized with the authenticated user's role.
+  // Admins land on the Admin Dashboard; normal users land on Upload Documents.
+  useEffect(() => {
+    if (!authLoading && isLoggedIn && user) {
+      setActiveTab(user.role === 'Admin' ? 'admin' : 'upload');
+    }
+  }, [authLoading, isLoggedIn, user]);
 
   if (authLoading) {
     return (

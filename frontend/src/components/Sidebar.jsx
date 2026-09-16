@@ -109,209 +109,214 @@ export default function Sidebar({
         }}
       >
 
-        {/* Upload Documents */}
+        {user?.role !== 'Admin' && (
+          <>
+          {/* Upload Documents */}
 
-        <button
-          type="button"
-          onClick={() => setActiveTab('upload')}
-          className={`btn ${
-            activeTab === 'upload'
-              ? 'btn-primary'
-              : 'btn-secondary'
-          }`}
-          style={{
-            justifyContent: 'flex-start',
-            width: '100%',
-            padding: '12px 16px',
-            border:
+          <button
+            type="button"
+            onClick={() => setActiveTab('upload')}
+            className={`btn ${
               activeTab === 'upload'
-                ? 'none'
-                : '1px solid var(--border-color)',
-            background:
-              activeTab === 'upload'
-                ? undefined
-                : 'transparent',
-          }}
-        >
-
-          <svg
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
+                ? 'btn-primary'
+                : 'btn-secondary'
+            }`}
             style={{
-              flexShrink: 0,
+              justifyContent: 'flex-start',
+              width: '100%',
+              padding: '12px 16px',
+              border:
+                activeTab === 'upload'
+                  ? 'none'
+                  : '1px solid var(--border-color)',
+              background:
+                activeTab === 'upload'
+                  ? undefined
+                  : 'transparent',
             }}
           >
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" />
-          </svg>
 
-          <span
-            className="nav-label"
-            style={{
-              marginLeft: '8px',
-            }}
-          >
-            Upload Documents
-          </span>
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{
+                flexShrink: 0,
+              }}
+            >
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" />
+            </svg>
 
-        </button>
+            <span
+              className="nav-label"
+              style={{
+                marginLeft: '8px',
+              }}
+            >
+              Upload Documents
+            </span>
+
+          </button>
 
 
-        {/* AI Chatbot */}
+          {/* AI Chatbot */}
 
-        <button
-          type="button"
-          onClick={() => setActiveTab('chat')}
-          className={`btn ${
-            activeTab === 'chat'
-              ? 'btn-primary'
-              : 'btn-secondary'
-          }`}
-          style={{
-            justifyContent: 'flex-start',
-            width: '100%',
-            padding: '12px 16px',
-            border:
+          <button
+            type="button"
+            onClick={() => setActiveTab('chat')}
+            className={`btn ${
               activeTab === 'chat'
-                ? 'none'
-                : '1px solid var(--border-color)',
-            background:
-              activeTab === 'chat'
-                ? undefined
-                : 'transparent',
-          }}
-        >
-
-          <svg
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
+                ? 'btn-primary'
+                : 'btn-secondary'
+            }`}
             style={{
-              flexShrink: 0,
+              justifyContent: 'flex-start',
+              width: '100%',
+              padding: '12px 16px',
+              border:
+                activeTab === 'chat'
+                  ? 'none'
+                  : '1px solid var(--border-color)',
+              background:
+                activeTab === 'chat'
+                  ? undefined
+                  : 'transparent',
             }}
           >
-            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-          </svg>
 
-          <span
-            className="nav-label"
-            style={{
-              marginLeft: '8px',
-            }}
-          >
-            AI Chatbot
-          </span>
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{
+                flexShrink: 0,
+              }}
+            >
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+            </svg>
 
-        </button>
+            <span
+              className="nav-label"
+              style={{
+                marginLeft: '8px',
+              }}
+            >
+              AI Chatbot
+            </span>
+
+          </button>
 
 
-        {/* History & Statistics */}
+          {/* History & Statistics */}
 
-        <button
-          type="button"
-          onClick={() => setActiveTab('history')}
-          className={`btn ${
-            activeTab === 'history'
-              ? 'btn-primary'
-              : 'btn-secondary'
-          }`}
-          style={{
-            justifyContent: 'flex-start',
-            width: '100%',
-            padding: '12px 16px',
-            border:
+          <button
+            type="button"
+            onClick={() => setActiveTab('history')}
+            className={`btn ${
               activeTab === 'history'
-                ? 'none'
-                : '1px solid var(--border-color)',
-            background:
-              activeTab === 'history'
-                ? undefined
-                : 'transparent',
-          }}
-        >
-
-          <svg
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
+                ? 'btn-primary'
+                : 'btn-secondary'
+            }`}
             style={{
-              flexShrink: 0,
+              justifyContent: 'flex-start',
+              width: '100%',
+              padding: '12px 16px',
+              border:
+                activeTab === 'history'
+                  ? 'none'
+                  : '1px solid var(--border-color)',
+              background:
+                activeTab === 'history'
+                  ? undefined
+                  : 'transparent',
             }}
           >
-            <rect x="18" y="3" width="4" height="18" />
-            <rect x="10" y="8" width="4" height="13" />
-            <rect x="2" y="13" width="4" height="8" />
-          </svg>
 
-          <span
-            className="nav-label"
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{
+                flexShrink: 0,
+              }}
+            >
+              <rect x="18" y="3" width="4" height="18" />
+              <rect x="10" y="8" width="4" height="13" />
+              <rect x="2" y="13" width="4" height="8" />
+            </svg>
+
+            <span
+              className="nav-label"
+              style={{
+                marginLeft: '8px',
+              }}
+            >
+              History & Statistics
+            </span>
+
+          </button>
+
+
+          {/* Analytics */}
+          <button
+            type="button"
+            onClick={() => setActiveTab('analytics')}
+            className={`btn ${activeTab === 'analytics' ? 'btn-primary' : 'btn-secondary'}`}
             style={{
-              marginLeft: '8px',
+              justifyContent: 'flex-start',
+              width: '100%',
+              padding: '12px 16px',
+              border: activeTab === 'analytics' ? 'none' : '1px solid var(--border-color)',
+              background: activeTab === 'analytics' ? undefined : 'transparent',
             }}
           >
-            History & Statistics
-          </span>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="4" y1="19" x2="4" y2="10" />
+              <line x1="10" y1="19" x2="10" y2="5" />
+              <line x1="16" y1="19" x2="16" y2="13" />
+              <line x1="22" y1="19" x2="22" y2="8" />
+            </svg>
+            <span className="nav-label" style={{ marginLeft: '8px' }}>Analytics</span>
+          </button>
 
-        </button>
+          {/* Knowledge Gaps */}
+          <button
+            type="button"
+            onClick={() => setActiveTab('gaps')}
+            className={`btn ${activeTab === 'gaps' ? 'btn-primary' : 'btn-secondary'}`}
+            style={{
+              justifyContent: 'flex-start',
+              width: '100%',
+              padding: '12px 16px',
+              border: activeTab === 'gaps' ? 'none' : '1px solid var(--border-color)',
+              background: activeTab === 'gaps' ? undefined : 'transparent',
+            }}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M10.3 2.3 2.3 10.3a2 2 0 0 0 0 2.8l8.6 8.6a2 2 0 0 0 2.8 0l8-8a2 2 0 0 0 0-2.8l-8.6-8.6a2 2 0 0 0-2.8 0Z" />
+              <line x1="8" y1="12" x2="12" y2="16" />
+              <line x1="12" y1="8" x2="16" y2="12" />
+            </svg>
+            <span className="nav-label" style={{ marginLeft: '8px' }}>Knowledge Gaps</span>
+          </button>
 
-
-        {/* Analytics */}
-        <button
-          type="button"
-          onClick={() => setActiveTab('analytics')}
-          className={`btn ${activeTab === 'analytics' ? 'btn-primary' : 'btn-secondary'}`}
-          style={{
-            justifyContent: 'flex-start',
-            width: '100%',
-            padding: '12px 16px',
-            border: activeTab === 'analytics' ? 'none' : '1px solid var(--border-color)',
-            background: activeTab === 'analytics' ? undefined : 'transparent',
-          }}
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="4" y1="19" x2="4" y2="10" />
-            <line x1="10" y1="19" x2="10" y2="5" />
-            <line x1="16" y1="19" x2="16" y2="13" />
-            <line x1="22" y1="19" x2="22" y2="8" />
-          </svg>
-          <span className="nav-label" style={{ marginLeft: '8px' }}>Analytics</span>
-        </button>
-
-        {/* Knowledge Gaps */}
-        <button
-          type="button"
-          onClick={() => setActiveTab('gaps')}
-          className={`btn ${activeTab === 'gaps' ? 'btn-primary' : 'btn-secondary'}`}
-          style={{
-            justifyContent: 'flex-start',
-            width: '100%',
-            padding: '12px 16px',
-            border: activeTab === 'gaps' ? 'none' : '1px solid var(--border-color)',
-            background: activeTab === 'gaps' ? undefined : 'transparent',
-          }}
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M10.3 2.3 2.3 10.3a2 2 0 0 0 0 2.8l8.6 8.6a2 2 0 0 0 2.8 0l8-8a2 2 0 0 0 0-2.8l-8.6-8.6a2 2 0 0 0-2.8 0Z" />
-            <line x1="8" y1="12" x2="12" y2="16" />
-            <line x1="12" y1="8" x2="16" y2="12" />
-          </svg>
-          <span className="nav-label" style={{ marginLeft: '8px' }}>Knowledge Gaps</span>
-        </button>
+          </>
+        )}
 
         {user?.role === 'Admin' && (
           <button
