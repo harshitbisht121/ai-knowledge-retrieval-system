@@ -8,6 +8,11 @@ DEFAULT_CHUNK_SIZE = 1000
 DEFAULT_CHUNK_OVERLAP = 150
 LAYOUT_COLUMN_BREAK = "--- Layout Column Break ---"
 
+# Structured table markers emitted by the document extractor. These markers
+# are intentionally generic and domain-agnostic.
+TABLE_START_MARKER = "[TABLE START]"
+TABLE_END_MARKER = "[TABLE END]"
+
 # Generic document-structure headings. These are intentionally domain-agnostic.
 
 _MAJOR_HEADING_PATTERNS = (
@@ -47,6 +52,116 @@ def _split_normal_text(text: str) -> list[str]:
     return splitter.split_text(text)
 
 
+def _find_table_blocks(text: str) -> list[tuple[int, int]]:
+    """Return (start, end) spans for extractor-emitted table blocks."""
+    spans: list[tuple[int, int]] = []
+    cursor = 0
+
+    while True:
+        start = text.find(TABLE_START_MARKER, cursor)
+        if start == -1:
+            break
+
+        end_marker_start = text.find(TABLE_END_MARKER, start + len(TABLE_START_MARKER))
+        if end_marker_start == -1:
+            break
+
+        end = end_marker_start + len(TABLE_END_MARKER)
+        spans.append((start, end))
+        cursor = end
+
+    return spans
+
+
+def _split_table_block(table_block: str) -> list[str]:
+    """Keep a structured table intact, splitting only between rows if needed."""
+    if len(table_block) <= DEFAULT_CHUNK_SIZE:
+        return [table_block.strip()] if table_block.strip() else []
+
+    lines = [line.rstrip() for line in table_block.splitlines()]
+    if not lines:
+        return []
+
+    try:
+        start_idx = next(
+            index
+            for index, line in enumerate(lines)
+            if line.strip() == TABLE_START_MARKER
+        )
+        end_idx = next(
+            index
+            for index in range(len(lines) - 1, -1, -1)
+            if lines[index].strip() == TABLE_END_MARKER
+        )
+    except StopIteration:
+        # Defensive fallback for malformed markers. Preserve the prior
+        # behavior rather than risking data loss.
+        return _split_normal_text(table_block)
+
+    row_pattern = re.compile(r"^\s*Table\s+\d+\s+row\s+\d+:")
+    first_row_idx = next(
+        (index for index in range(start_idx + 1, end_idx) if row_pattern.match(lines[index])),
+        None,
+    )
+
+    # If the extractor format is not row-oriented, preserve the block instead
+    # of making unsafe assumptions about its internal structure.
+    if first_row_idx is None:
+        return _split_normal_text(table_block)
+
+    header_lines = lines[start_idx:first_row_idx]
+    row_lines = lines[first_row_idx:end_idx]
+
+    chunks: list[str] = []
+    current_rows: list[str] = []
+
+    def build_chunk(rows: list[str]) -> str:
+        content = header_lines + rows + [lines[end_idx]]
+        return "\n".join(content).strip()
+
+    for row in row_lines:
+        candidate_rows = current_rows + [row]
+        candidate = build_chunk(candidate_rows)
+
+        if current_rows and len(candidate) > DEFAULT_CHUNK_SIZE:
+            chunks.append(build_chunk(current_rows))
+            current_rows = [row]
+        else:
+            current_rows = candidate_rows
+
+    if current_rows:
+        chunks.append(build_chunk(current_rows))
+
+    return chunks
+
+
+def _split_text_preserving_tables(text: str) -> list[str]:
+    """Split text while preventing extractor-emitted tables from being split arbitrarily."""
+    spans = _find_table_blocks(text)
+    if not spans:
+        return _split_normal_text(text)
+
+    chunks: list[str] = []
+    cursor = 0
+
+    for start, end in spans:
+        before = text[cursor:start].strip()
+        if before:
+            chunks.extend(_split_normal_text(before))
+
+        table_block = text[start:end].strip()
+        if table_block:
+            chunks.extend(_split_table_block(table_block))
+
+        cursor = end
+
+    after = text[cursor:].strip()
+    if after:
+        chunks.extend(_split_normal_text(after))
+
+    return chunks
+
+
 def _is_major_heading(line: str) -> bool:
     """
     Return True when a line is likely to introduce a logical document section.
@@ -69,7 +184,9 @@ def _is_major_heading(line: str) -> bool:
             return True
 
     if _LABEL_HEADING_PATTERN.match(stripped):
-        return True
+        # A long sentence ending in ':' is usually an introduction to a list,
+        # not a structural heading (for example, "The most critical ...:").
+        return len(stripped.rstrip(":").split()) <= 5
 
     return False
 
@@ -182,7 +299,7 @@ def _chunk_logical_sections(
         if len(section) <= DEFAULT_CHUNK_SIZE:
             chunks.append(section)
         else:
-            chunks.extend(_split_normal_text(section))
+            chunks.extend(_split_text_preserving_tables(section))
 
     return chunks
 
@@ -244,11 +361,114 @@ def chunk_text(text: str) -> list[str]:
     logical_sections = _split_logical_sections(text)
 
     # If no meaningful document structure was detected, retain the original
-    # behavior exactly.
+    # behavior for ordinary text while still protecting structured tables.
     if len(logical_sections) <= 1:
-        return _split_normal_text(text)
+        return _split_text_preserving_tables(text)
 
     return _chunk_logical_sections(text)
+
+
+# =====================================================================
+# Section-aware chunk records
+# =====================================================================
+
+def _section_heading_from_text(section: str) -> str | None:
+    """Return the leading structural heading when the section has one."""
+    for line in section.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+
+        if _is_major_heading(stripped) and not _looks_like_task_or_bullet(stripped):
+            heading = re.sub(r"^#{1,6}\s*", "", stripped).strip()
+            return heading or None
+
+        break
+
+    return None
+
+
+def _chunk_section_records(section: str) -> list[dict[str, str]]:
+    """Chunk one logical section and preserve its heading on every chunk."""
+    section = section.strip()
+    if not section:
+        return []
+
+    heading = _section_heading_from_text(section)
+
+    if len(section) <= DEFAULT_CHUNK_SIZE:
+        parts = [section]
+    else:
+        parts = _split_text_preserving_tables(section)
+
+    records: list[dict[str, str]] = []
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+        record = {"content": part}
+        if heading:
+            record["section_heading"] = heading
+        records.append(record)
+
+    return records
+
+
+def chunk_text_with_sections(text: str) -> list[dict[str, str]]:
+    """
+    Return the same retrieval chunks as the existing chunker plus an optional
+    ``section_heading`` for chunks belonging to a clearly detected logical
+    section.
+
+    This is an ingestion-time metadata path. The existing ``chunk_text`` API
+    remains unchanged so unrelated callers keep their established behavior.
+    """
+    if not text or not text.strip():
+        return []
+
+    if LAYOUT_COLUMN_BREAK in text:
+        column_sections = [
+            section.strip()
+            for section in text.split(LAYOUT_COLUMN_BREAK)
+            if section.strip()
+        ]
+
+        if len(column_sections) <= 1:
+            return chunk_text_with_sections(
+                column_sections[0] if column_sections else text
+            )
+
+        records: list[dict[str, str]] = []
+        for column in column_sections:
+            logical_sections = _split_logical_sections(column)
+            if len(logical_sections) <= 1:
+                records.extend(
+                    {
+                        "content": chunk,
+                    }
+                    for chunk in _split_text_preserving_tables(column)
+                    if chunk.strip()
+                )
+            else:
+                for section in logical_sections:
+                    records.extend(_chunk_section_records(section))
+        return records
+
+    logical_sections = _split_logical_sections(text)
+
+    # Keep the established fallback for ordinary unstructured text.
+    if len(logical_sections) <= 1:
+        return [
+            {"content": chunk}
+            for chunk in _split_text_preserving_tables(text)
+            if chunk.strip()
+        ]
+
+    records: list[dict[str, str]] = []
+    for section in logical_sections:
+        records.extend(_chunk_section_records(section))
+
+    return records
 
 
 if __name__ == "__main__":

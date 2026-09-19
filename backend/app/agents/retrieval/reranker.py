@@ -501,6 +501,62 @@ def deduplicate_results(
 
 
 # =====================================================================
+# Section-heading relevance
+# =====================================================================
+
+def section_heading_score(
+    metadata: dict[str, Any] | None,
+    keywords: Iterable[str] | None,
+) -> float:
+    """
+    Measure whether the candidate's stored section heading matches
+    any meaningful query keyword.
+
+    This is completely domain-agnostic: it uses only metadata produced by
+    ingestion and the keywords already produced by Query Understanding.
+    """
+
+    if not isinstance(metadata, dict):
+        return 0.0
+
+    heading = _normalize_text(
+        metadata.get("section_heading")
+    )
+
+    if not heading:
+        return 0.0
+
+    terms = _clean_terms(keywords)
+
+    # Ignore generic query-management words that do not identify a section.
+    ignored = {
+        "what", "which", "where", "when", "why", "how",
+        "is", "are", "was", "were", "does", "do", "did",
+        "the", "a", "an", "of", "for", "to", "in", "on",
+        "and", "or", "list", "all", "every", "complete",
+        "tell", "me", "about", "give", "show", "explain",
+    }
+
+    meaningful_terms = [
+        term
+        for term in terms
+        if term not in ignored
+        and len(term) >= 3
+    ]
+
+    if not meaningful_terms:
+        return 0.0
+
+    matched = sum(
+        1
+        for term in meaningful_terms
+        if _contains_term(heading, term)
+    )
+
+    return matched / len(meaningful_terms)
+
+
+# =====================================================================
 # Main reranker
 # =====================================================================
 
@@ -629,6 +685,15 @@ def rerank_results(
             + synergy * weights["synergy"]
         )
 
+        # Keep the existing score formula intact and add a small, generic
+        # boost when the candidate explicitly belongs to a section named by
+        # the query. This does not change ranking for candidates without a
+        # stored section heading.
+        section_score = section_heading_score(
+            result.get("metadata"),
+            keywords,
+        )
+
         # Keep query-match as a small precision bonus. The score is driven
         # primarily by the candidate's own semantic evidence plus generic
         # lexical/entity signals.
@@ -637,6 +702,15 @@ def rerank_results(
             + evidence * 0.15
             + query_match * 0.05
         )
+
+        # Section match is a bounded additive refinement, not a replacement
+        # for semantic/lexical relevance. A complete section-name match can
+        # contribute at most +0.10.
+        if section_score > 0.0:
+            final_score = min(
+                1.0,
+                final_score + (0.10 * section_score),
+            )
 
         # -------------------------------------------------------------
         # Exact-candidate availability penalty
@@ -721,6 +795,11 @@ def rerank_results(
 
         item["query_match_score"] = round(
             query_match,
+            6,
+        )
+
+        item["section_heading_score"] = round(
+            section_score,
             6,
         )
 

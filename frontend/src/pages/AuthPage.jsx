@@ -14,7 +14,6 @@ export default function AuthPage({
     loading: authLoading,
     login,
     register,
-    quickLogin,
     logout,
   } = useAuth();
 
@@ -266,49 +265,6 @@ export default function AuthPage({
         'error',
         error?.message ||
           'Unable to create your account.',
-      );
-
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-
-  /* ---------------------------------------------------------------- */
-  /* Quick login                                                       */
-  /* ---------------------------------------------------------------- */
-
-  const handleQuickLogin = async (
-    preset,
-  ) => {
-    setSubmitting(true);
-
-    try {
-      const data =
-        await quickLogin(preset);
-
-      triggerToast(
-        'success',
-        data?.message ||
-          'Signed in successfully.',
-      );
-
-      if (onLoginSuccess) {
-        onLoginSuccess(data.user);
-      }
-
-      if (onNavigateToWorkspace) {
-        setTimeout(
-          onNavigateToWorkspace,
-          500,
-        );
-      }
-
-    } catch (error) {
-      triggerToast(
-        'error',
-        error?.message ||
-          'Quick login failed. Make sure the demo account exists in the backend.',
       );
 
     } finally {
@@ -1083,46 +1039,6 @@ export default function AuthPage({
           </form>
         )}
 
-
-        {/* ---------------------------------------------------------- */}
-        {/* Quick access                                                 */}
-        {/* ---------------------------------------------------------- */}
-
-        <div className="auth-divider">
-          <span>
-            OR DEMO QUICK ACCESS
-          </span>
-        </div>
-
-
-        <div className="preset-buttons-grid">
-
-          <button
-            type="button"
-            onClick={() =>
-              handleQuickLogin('demo')
-            }
-            className="preset-btn"
-            disabled={submitting}
-          >
-            <span>👤</span>
-            Demo User (Alex)
-          </button>
-
-
-          <button
-            type="button"
-            onClick={() =>
-              handleQuickLogin('admin')
-            }
-            className="preset-btn"
-            disabled={submitting}
-          >
-            <span>⚡</span>
-            Admin User (Dr. Vance)
-          </button>
-
-        </div>
 
       </div>
 

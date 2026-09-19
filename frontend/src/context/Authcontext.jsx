@@ -23,24 +23,6 @@ import * as api from '../services/api';
 const AuthContext = createContext(null);
 
 
-/*
- * Demo credentials use the real backend.
- *
- * These accounts must exist in the backend database.
- */
-const QUICK_LOGIN_CREDENTIALS = {
-  demo: {
-    email: 'demo@querynest.ai',
-    password: 'DemoPassword123!',
-  },
-
-  admin: {
-    email: 'admin@querynest.ai',
-    password: 'AdminSecure2026!',
-  },
-};
-
-
 /* ------------------------------------------------------------------ */
 /* Storage helpers                                                     */
 /* ------------------------------------------------------------------ */
@@ -259,29 +241,6 @@ export const AuthProvider = ({
 
 
   /*
-   * Quick login through the real backend.
-   */
-  const quickLogin = async (
-    preset = 'demo',
-  ) => {
-    const credentials =
-      QUICK_LOGIN_CREDENTIALS[preset];
-
-    if (!credentials) {
-      throw new Error(
-        'Unknown quick-login preset.',
-      );
-    }
-
-    return login(
-      credentials.email,
-      credentials.password,
-      true,
-    );
-  };
-
-
-  /*
    * Logout from backend and frontend.
    */
   const logout = async () => {
@@ -322,7 +281,6 @@ export const AuthProvider = ({
 
         login,
         register,
-        quickLogin,
         logout,
       }}
     >

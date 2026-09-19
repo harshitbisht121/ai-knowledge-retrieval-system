@@ -14,6 +14,8 @@ from app.admin.schemas import (
     AdminDashboardOverview,
     AdminUsersListResponse,
     AdminUserDetail,
+    AdminUserStatusUpdate,
+    AdminUserRoleUpdate,
     AdminDocumentSummary,
     QueriesPerUser,
     FrequentQuery,
@@ -22,6 +24,9 @@ from app.admin.service import (
     get_dashboard_overview,
     get_users_summary,
     get_user_detail,
+    update_user_status,
+    update_user_role,
+    delete_user_as_admin,
     get_all_documents,
     delete_document_as_admin,
     get_queries_per_user,
@@ -99,6 +104,50 @@ def admin_user_detail(
     Return full detail for one user, including their uploaded documents.
     """
     return get_user_detail(db, user_id)
+
+
+@router.patch(
+    "/users/{user_id}/status",
+    response_model=AdminUserDetail,
+    summary="Block or Unblock a User",
+)
+def admin_update_user_status(
+    user_id: str,
+    payload: AdminUserStatusUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Enable or disable a user's ability to authenticate and use the API."""
+    return update_user_status(db, user_id, payload.is_active, current_user)
+
+
+@router.patch(
+    "/users/{user_id}/role",
+    response_model=AdminUserDetail,
+    summary="Change a User's System Role",
+)
+def admin_update_user_role(
+    user_id: str,
+    payload: AdminUserRoleUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Promote a user to Admin or demote an Admin back to User."""
+    return update_user_role(db, user_id, payload.role, current_user)
+
+
+@router.delete(
+    "/users/{user_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Permanently Delete a User Account",
+)
+def admin_delete_user(
+    user_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Permanently delete a user and their user-owned knowledge vectors."""
+    delete_user_as_admin(db, user_id, current_user)
 
 
 @router.get(

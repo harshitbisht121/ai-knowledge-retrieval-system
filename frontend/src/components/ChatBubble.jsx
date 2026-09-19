@@ -665,7 +665,10 @@ export default function ChatBubble({ message, onSelectSource }) {
                     }
                     onClick={() =>
                       onSelectSource &&
-                      onSelectSource(source)
+                      onSelectSource(
+                        source,
+                        message
+                      )
                     }
                     className="badge badge-purple"
                     style={{

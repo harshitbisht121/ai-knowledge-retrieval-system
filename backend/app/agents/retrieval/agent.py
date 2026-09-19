@@ -365,18 +365,44 @@ class RetrievalAgent:
     @classmethod
     def _extract_heading(
         cls,
-        content: str,
+        result_or_content: Any,
     ) -> str | None:
         """
-        Return the first heading-like line in a chunk.
+        Return the stored logical section heading when available.
+
+        Image/OCR extraction stores the section title in
+        ``metadata["section_heading"]``. Prefer that authoritative value
+        over rediscovering a heading from flattened OCR text. The original
+        content-based detector remains as a fallback for documents that do
+        not provide section metadata.
         """
 
-        if not content:
+        content = result_or_content
+
+        if isinstance(result_or_content, dict):
+            metadata = result_or_content.get("metadata")
+            if isinstance(metadata, dict):
+                section_heading = metadata.get("section_heading")
+                if isinstance(section_heading, str) and section_heading.strip():
+                    return section_heading.strip().lower()
+
+            content = result_or_content.get("content", "")
+
+        if not isinstance(content, str) or not content:
             return None
 
         for line in content.splitlines():
 
             cleaned = line.strip()
+
+            # Ignore ingestion/storage wrapper lines. These are not logical
+            # document sections and must never become the active heading.
+            if re.match(
+                r"^(file name|page|image|image ocr section|image ocr fallback)\b",
+                cleaned,
+                flags=re.IGNORECASE,
+            ):
+                continue
 
             if cls._looks_like_heading(cleaned):
                 return cleaned.rstrip(":").strip().lower()
@@ -427,14 +453,7 @@ class RetrievalAgent:
         Score a chunk for section relevance based on its heading.
         """
 
-        heading = cls._extract_heading(
-            str(
-                result.get(
-                    "content",
-                    "",
-                )
-            )
-        )
+        heading = cls._extract_heading(result)
 
         if not heading:
             return 0
@@ -564,6 +583,49 @@ class RetrievalAgent:
         ):
             return ranked_candidates[:final_k]
 
+        # When a completeness query lands in a section that spans multiple
+        # chunks, prefer chunks carrying the exact same logical section
+        # heading. This is stronger than relying only on physical adjacency
+        # and prevents a neighboring section from being substituted when
+        # chunk boundaries fall inside a list or section.
+        anchor_heading = self._extract_heading(anchor)
+        if anchor_heading:
+            same_section_candidates = []
+
+            for candidate in candidate_pool:
+                if not isinstance(candidate, dict):
+                    continue
+
+                if self._document_id(candidate) != anchor_document:
+                    continue
+
+                candidate_heading = self._extract_heading(candidate)
+                if not candidate_heading:
+                    continue
+
+                if candidate_heading.strip().lower() != anchor_heading.strip().lower():
+                    continue
+
+                candidate_index = self._chunk_index(candidate)
+                if candidate_index is None:
+                    continue
+
+                same_section_candidates.append(candidate)
+
+            if len(same_section_candidates) > 1:
+                same_section_candidates.sort(
+                    key=lambda item: (
+                        self._chunk_index(item)
+                        if self._chunk_index(item) is not None
+                        else 10**9,
+                    )
+                )
+
+                # For a complete-list query, retain the earliest chunks of
+                # the matched section so the section introduction/list start
+                # is not lost when the semantic anchor falls later in it.
+                return same_section_candidates[:final_k]
+
         selected_keys.add(
             (
                 anchor_document,
@@ -591,14 +653,7 @@ class RetrievalAgent:
             if next_chunk is None:
                 break
 
-            heading = self._extract_heading(
-                str(
-                    next_chunk.get(
-                        "content",
-                        "",
-                    )
-                )
-            )
+            heading = self._extract_heading(next_chunk)
 
             # If a new strong heading begins, stop the current section.
             if heading:

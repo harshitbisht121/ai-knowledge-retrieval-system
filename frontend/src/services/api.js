@@ -805,6 +805,56 @@ export async function getAdminUser(userId) {
   return parseResponse(response);
 }
 
+export async function updateAdminUserStatus(userId, isActive) {
+  const response = await fetch(
+    `${API_BASE_URL}/admin/users/${encodeURIComponent(userId)}/status`,
+    {
+      method: 'PATCH',
+      headers: getAuthHeaders(true),
+      body: JSON.stringify({ is_active: Boolean(isActive) }),
+    },
+  );
+
+  return parseResponse(response);
+}
+
+
+export async function updateAdminUserRole(userId, role) {
+  const response = await fetch(
+    `${API_BASE_URL}/admin/users/${encodeURIComponent(userId)}/role`,
+    {
+      method: 'PATCH',
+      headers: getAuthHeaders(true),
+      body: JSON.stringify({ role }),
+    },
+  );
+
+  return parseResponse(response);
+}
+
+// Backward-compatible helper for callers that only need promotion.
+export async function promoteAdminUser(userId) {
+  return updateAdminUserRole(userId, 'Admin');
+}
+
+export async function demoteAdminUser(userId) {
+  return updateAdminUserRole(userId, 'User');
+}
+
+
+export async function deleteAdminUser(userId) {
+  const response = await fetch(
+    `${API_BASE_URL}/admin/users/${encodeURIComponent(userId)}`,
+    {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+    },
+  );
+
+  return parseResponse(response);
+}
+
+
 export async function getAdminDocuments() {
   const response = await fetch(
     `${API_BASE_URL}/admin/documents`,

@@ -19,6 +19,7 @@ class AdminUserSummary(BaseModel):
     email: str
     full_name: str
     role: str
+    is_active: bool
     document_count: int
     query_count: int
     created_at: datetime
@@ -70,12 +71,25 @@ class AdminUserDetail(BaseModel):
     email: str
     full_name: str
     role: str
+    is_active: bool
     created_at: datetime
     document_count: int
     query_count: int
     documents: List[AdminUserDocument]
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class AdminUserStatusUpdate(BaseModel):
+    """Enable or disable a user account."""
+
+    is_active: bool
+
+
+class AdminUserRoleUpdate(BaseModel):
+    """Request body for changing a user's system role."""
+
+    role: str
 
 
 class AdminDocumentSummary(BaseModel):

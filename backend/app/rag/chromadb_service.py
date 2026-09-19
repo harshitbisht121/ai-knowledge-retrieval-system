@@ -149,6 +149,13 @@ def delete_documents_for_user(document_id, user_id):
     )
 
 
+def delete_all_documents_for_user(user_id):
+    """Delete all ChromaDB vectors owned by a specific user."""
+    collection.delete(
+        where={"user_id": user_id},
+    )
+
+
 def search_documents(
     query_embedding,
     k=3,

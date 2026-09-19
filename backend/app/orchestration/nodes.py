@@ -37,6 +37,7 @@ from app.agents.retrieval.agent import (
 
 from app.agents.response_generation.agent import (
     generate_response,
+    is_insufficient_context_answer,
 )
 
 from app.agents.clarification.agent import (
@@ -787,6 +788,37 @@ def retrieval_node(
         print(f"[RETRIEVAL] Final result count: {len(retrieval_result.get('results', []))}")
         print(f"[RETRIEVAL] Fallback used: {retrieval_result.get('fallback', 'none')}\n")
 
+        # Debug: print relevance score for every final retrieved chunk
+        results = retrieval_result.get("results", [])
+
+        if results:
+            print("[RETRIEVAL] --- Relevance Scores ---")
+
+            for i, chunk in enumerate(results, start=1):
+                if isinstance(chunk, dict):
+                    raw_score = (
+                        chunk.get("relevance_score")
+                        if chunk.get("relevance_score") is not None
+                        else chunk.get("score")
+                    )
+
+                    if raw_score is None:
+                        raw_score = chunk.get("similarity")
+
+                    try:
+                        score = float(raw_score)
+                        print(
+                            f"[RETRIEVAL] Chunk {i} | "
+                            f"Relevance: {score:.3f} ({score * 100:.1f}%)"
+                        )
+                    except (TypeError, ValueError):
+                        print(
+                            f"[RETRIEVAL] Chunk {i} | "
+                            f"Relevance: unavailable"
+                        )
+
+            print("[RETRIEVAL] ----------------------\n")
+
         return {
             **state,
             "retrieval_result": retrieval_result,
@@ -799,8 +831,6 @@ def retrieval_node(
                 f"Retrieval failed: {error}"
             ),
         }
-
-
 
 # =====================================================================
 # Milestone 2 - Response Generation Node
@@ -837,9 +867,61 @@ def response_generation_node(
             chunks=chunks,
         )
 
+        response_data = response.model_dump()
+
+        # ---------------------------------------------------------------
+        # Debug: Answer confidence
+        # ---------------------------------------------------------------
+        print("\n[RESPONSE] --- Answer Metrics ---")
+        print(f"[RESPONSE] Query: {query}")
+        print(
+            f"[RESPONSE] Answer Confidence: "
+            f"{response.confidence:.2f} "
+            f"({response.confidence * 100:.1f}%)"
+        )
+
+        # ---------------------------------------------------------------
+        # Debug: Relevance of cited sources
+        # ---------------------------------------------------------------
+        if response.sources:
+            print("[RESPONSE] --- Cited Source Relevance ---")
+
+            for i, source in enumerate(response.sources, start=1):
+                if source.relevance_score is not None:
+                    print(
+                        f"[RESPONSE] Source {i} | "
+                        f"{source.source} | "
+                        f"Relevance: "
+                        f"{source.relevance_score:.3f} "
+                        f"({source.relevance_score * 100:.1f}%)"
+                    )
+                else:
+                    print(
+                        f"[RESPONSE] Source {i} | "
+                        f"{source.source} | "
+                        f"Relevance: unavailable"
+                    )
+
+        print("[RESPONSE] --------------------------\n")
+
+        # ---------------------------------------------------------------
+        # Existing no-evidence/refusal protection
+        # ---------------------------------------------------------------
+        # A refusal means the retrieved candidates did not contain usable
+        # evidence. Clear retrieval artifacts before the state is returned
+        # so the live Context Inspector and persisted conversation metadata
+        # do not present unrelated chunks as sources for that answer.
+        if is_insufficient_context_answer(
+            response_data.get("answer", "")
+        ):
+            retrieval_result = {
+                "results": [],
+            }
+
         return {
             **state,
-            "response": response.model_dump(),
+            "retrieval_result": retrieval_result,
+            "response": response_data,
         }
 
     except Exception as error:

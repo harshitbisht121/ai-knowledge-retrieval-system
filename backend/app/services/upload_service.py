@@ -15,7 +15,7 @@ from app.core.database import SessionLocal
 from app.core.models import KnowledgeBaseDocument
 
 from app.rag.chromadb_service import add_documents
-from app.rag.chunking import chunk_text
+from app.rag.chunking import chunk_text_with_sections
 from app.rag.embedding import embed_chunks, load_embedding_model
 from app.rag.extractor import extract_document
 
@@ -331,11 +331,17 @@ def process_uploaded_document(
         )
 
         chunks = []
+        chunk_records = []
 
         chunking_start = time.perf_counter()
 
         if full_text:
-            chunks = chunk_text(full_text)
+            chunk_records = chunk_text_with_sections(full_text)
+            chunks = [
+                record.get("content", "")
+                for record in chunk_records
+                if record.get("content")
+            ]
 
         chunking_time = time.perf_counter() - chunking_start
 
@@ -349,16 +355,24 @@ def process_uploaded_document(
         # Metadata for normal extracted text
         # -----------------------------------------------------------
 
-        metadatas = [
-            {
+        metadatas = []
+        for index, chunk in enumerate(chunks):
+            metadata = {
                 "document_id": document_id,
                 "filename": original_filename,
                 "chunk_index": index,
                 "source_type": "text",
                 "user_id": str(user_id) if user_id else "",
             }
-            for index in range(len(chunks))
-        ]
+
+            if index < len(chunk_records):
+                section_heading = chunk_records[index].get(
+                    "section_heading"
+                )
+                if section_heading:
+                    metadata["section_heading"] = section_heading
+
+            metadatas.append(metadata)
 
         # -----------------------------------------------------------
         # Add OCR-derived page/image chunks

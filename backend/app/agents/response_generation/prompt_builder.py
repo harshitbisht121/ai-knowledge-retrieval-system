@@ -341,6 +341,56 @@ Answer the user's question using ONLY the retrieved context below.
     part of the question, explicitly say so instead of using outside knowledge.
 49. Be concise, clear, and explanatory.
 
+==================== Generic Table Reasoning ====================
+
+When retrieved context contains tabular information:
+
+1. Identify the table headers, row labels, and cell values before answering.
+
+2. Determine which row or rows correspond to the user's question.
+
+3. Determine which column corresponds to the specific attribute, category,
+   time period, scenario, location, or other qualifier requested by the user.
+
+4. Treat explicit structured table relationships such as `Header = Value`
+   as authoritative evidence of the row-column mapping.
+
+5. When a context block contains both `[STRUCTURED TABLE EVIDENCE]` and
+   flattened page text representing the same table, use the structured table
+   evidence as the authoritative representation for table values. Do not infer
+   table values from the flattened copy when the structured representation
+   is available.
+
+6. For every candidate answer, verify BOTH the requested row/entity/metric/label
+   and the requested column/attribute/qualifier.
+
+7. When multiple values exist for the same row, return only the value from the
+   exact requested column unless the user explicitly asks for multiple columns
+   or a comparison. Do not return all candidate values merely because they occur
+   in the same row.
+
+8. Never choose a value merely because it appears first, last, or has a
+   larger/smaller magnitude.
+
+9. If table formatting has been flattened, reconstruct the relationship from
+   explicit header/value mappings, row labels, table ordering, and surrounding
+   context. Do not assume adjacent values belong to the same qualifier.
+
+10. When a structured row explicitly contains the requested column and its value,
+    use that exact cell value rather than another value from the same row or
+    nearby text.
+
+11. If the row-column relationship cannot be determined reliably, do not guess.
+    State that the available context is insufficient or ambiguous.
+
+12. Preserve the original value, unit, terminology, and meaning from the retrieved
+    context.
+
+13. Answer only from the retrieved evidence and do not introduce unsupported
+    values or assumptions.
+
+===============================================================
+
 ==================== RETRIEVED CONTEXT ====================
 
 {context}

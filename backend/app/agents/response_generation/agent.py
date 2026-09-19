@@ -156,6 +156,60 @@ def _get_relevance_score(
         return None
 
 # ---------------------------------------------------------------------
+# Retrieval-refusal detection
+# ---------------------------------------------------------------------
+
+INSUFFICIENT_CONTEXT_PATTERNS = (
+    # Full no-evidence responses. These intentionally require
+    # "any information" / an explicit knowledge-base refusal so a
+    # legitimate partial answer is not mistaken for a total refusal.
+    "the retrieved documents do not contain any information",
+    "retrieved documents do not contain any information",
+    "the retrieved context does not contain any information",
+    "retrieved context does not contain any information",
+    "the available context does not contain any information",
+    "the available context does not provide any information",
+    "the context does not contain any information",
+    "i don't have enough information in the available knowledge base",
+    "i do not have enough information in the available knowledge base",
+    "cannot answer from the available context",
+    "can't answer from the available context",
+    "no information is available in the retrieved context",
+    "no information is available in the available context",
+)
+
+
+def is_insufficient_context_answer(answer: str) -> bool:
+    """Return True when the model explicitly says the retrieved context lacks the answer."""
+
+    if not isinstance(answer, str):
+        return False
+
+    normalized = answer.lower().strip()
+
+    return any(
+        pattern in normalized
+        for pattern in INSUFFICIENT_CONTEXT_PATTERNS
+    )
+
+
+def _strip_citation_markers(answer: str) -> str:
+    """Remove RAG citation markers from a no-evidence refusal response."""
+
+    if not isinstance(answer, str):
+        return answer
+
+    cleaned = re.sub(
+        r"(?:\[\d+\]|【\d+】)",
+        "",
+        answer,
+    )
+
+    # Remove excess whitespace left behind by stripped citations.
+    return re.sub(r"[ \t]{2,}", " ", cleaned).strip()
+
+
+# ---------------------------------------------------------------------
 # Citation extraction
 # ---------------------------------------------------------------------
 
@@ -569,6 +623,20 @@ def generate_response(
     answer = _normalize_citation_markers(
         answer
     )
+
+    # ---------------------------------------------------------------
+    # No-evidence guard
+    # ---------------------------------------------------------------
+    # The retrieval path may return weak candidate chunks so the response
+    # generator can inspect them. If the model explicitly concludes that
+    # those chunks do not contain the answer, they are not evidence for the
+    # response and must not be exposed as citations/sources.
+    if is_insufficient_context_answer(answer):
+        return LLMResponse(
+            answer=_strip_citation_markers(answer),
+            sources=[],
+            confidence=0.0,
+        )
 
     # ---------------------------------------------------------------
     # Extract sources

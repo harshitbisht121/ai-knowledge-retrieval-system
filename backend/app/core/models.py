@@ -16,6 +16,7 @@ from sqlalchemy import (
     Column,
     DateTime,
     ForeignKey,
+    Boolean,
     Integer,
     String,
     Text,
@@ -60,6 +61,15 @@ class User(Base):
         String(50),
         nullable=False,
         default="User",
+    )
+
+    # Account access can be disabled by an administrator without deleting
+    # the user's data. Existing accounts are active after the migration.
+    is_active = Column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default="true",
     )
 
     avatar = Column(

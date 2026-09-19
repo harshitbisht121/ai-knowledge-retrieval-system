@@ -246,7 +246,8 @@ AI-Based Knowledge Retrieval Platform with Query Resolution System/
 │   │   │   ├── 0f628c51b660_initial_schema.py
 │   │   │   ├── 7c91f9e3a2b4_milestone4_analytics_and_knowledge_gaps.py
 │   │   │   ├── 5a7a6c2b7c8f_add_user_specific_knowledge_base.py
-│   │   │   └── e9b7e767c397_add_user_id_to_knowledge_gaps.py
+│   │   │   ├── e9b7e767c397_add_user_id_to_knowledge_gaps.py
+│   │   │   └── a4c8d2e1f907_add_user_active_status.py
 │   │   ├── env.py
 │   │   └── script.py.mako
 │   ├── alembic.ini
@@ -2222,6 +2223,44 @@ JWT_SECRET_KEY=<long-random-secret>
 JWT_ALGORITHM=HS256
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES=60
 ```
+
+### Generate `JWT_SECRET_KEY`
+
+The backend requires a secure random value for `JWT_SECRET_KEY`. Generate a new secret locally and paste the generated value into `backend/.env`.
+
+#### PowerShell
+
+Run:
+
+```powershell
+$b = New-Object byte[] 64
+$rng = New-Object System.Security.Cryptography.RNGCryptoServiceProvider
+$rng.GetBytes($b)
+$rng.Dispose()
+[Convert]::ToBase64String($b)
+```
+
+Copy the generated Base64 string and set:
+
+```env
+JWT_SECRET_KEY=<generated-secret>
+```
+
+#### Command Prompt (CMD)
+
+You can also run the PowerShell command directly from CMD:
+
+```cmd
+powershell -Command "$b = New-Object byte[] 64; $rng = New-Object System.Security.Cryptography.RNGCryptoServiceProvider; $rng.GetBytes($b); $rng.Dispose(); [Convert]::ToBase64String($b)"
+```
+
+Copy the generated value into:
+
+```env
+JWT_SECRET_KEY=<generated-secret>
+```
+
+**Security:** Generate your own secret locally. Do not commit `backend/.env` or the generated JWT secret to GitHub. The repository should contain only the placeholder in `backend/.env.example`.
 
 5. Run the initial/future schema migrations:
 

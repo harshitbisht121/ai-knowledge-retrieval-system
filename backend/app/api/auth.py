@@ -186,6 +186,12 @@ def login(
             },
         )
 
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account has been blocked. Please contact an administrator.",
+        )
+
     # Issue a fresh access token after successful login.
     token = create_access_token(
         subject=str(user.id),

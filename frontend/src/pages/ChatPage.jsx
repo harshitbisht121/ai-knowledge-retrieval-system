@@ -185,9 +185,9 @@ export default function ChatPage() {
 
       return (
         source.chunk_id ||
+        source.document_chunk_id ||
         source.id ||
         source.source ||
-        source.document_chunk_id ||
         null
       );
     };
@@ -202,6 +202,40 @@ export default function ChatPage() {
   const getResultIdentifier =
     (result) =>
       getSourceIdentifier(result);
+
+
+  const isInsufficientContextAnswer =
+    (text) => {
+
+      if (typeof text !== 'string') {
+        return false;
+      }
+
+      const normalized =
+        text.toLowerCase();
+
+      const refusalPatterns = [
+        // Only match full no-evidence responses. A partial answer may
+        // legitimately say that one part of the question is unsupported.
+        'the retrieved documents do not contain any information',
+        'retrieved documents do not contain any information',
+        'the retrieved context does not contain any information',
+        'retrieved context does not contain any information',
+        'the available context does not contain any information',
+        'the available context does not provide any information',
+        'the context does not contain any information',
+        "i don't have enough information in the available knowledge base",
+        'i do not have enough information in the available knowledge base',
+        'cannot answer from the available context',
+        "can't answer from the available context",
+        'no information is available in the retrieved context',
+        'no information is available in the available context',
+      ];
+
+      return refusalPatterns.some(
+        (pattern) => normalized.includes(pattern)
+      );
+    };
 
 
   const normalizeMessageMetadata =
@@ -252,6 +286,17 @@ export default function ChatPage() {
         );
 
 
+      const text =
+        message?.content || '';
+
+      // Defensive cleanup for conversations created before the no-evidence
+      // guard was added. Old persisted refusal messages may still contain
+      // retrieval metadata, but that metadata should not populate the
+      // Context Inspector because the answer explicitly says the context
+      // did not contain the requested information.
+      const isRefusal =
+        isInsufficientContextAnswer(text);
+
       return {
         id: message?.id,
 
@@ -260,8 +305,7 @@ export default function ChatPage() {
             ? 'user'
             : 'bot',
 
-        text:
-          message?.content || '',
+        text,
 
         timestamp:
           message?.created_at ||
@@ -273,6 +317,7 @@ export default function ChatPage() {
          * Context Inspector.
          */
         sources:
+          !isRefusal &&
           Array.isArray(
             metadata?.sources
           )
@@ -287,6 +332,7 @@ export default function ChatPage() {
           null,
 
         retrieval_results:
+          !isRefusal &&
           Array.isArray(
             metadata?.retrieval_results
           )
@@ -342,7 +388,13 @@ export default function ChatPage() {
         );
 
 
+      const isRefusal =
+        isInsufficientContextAnswer(
+          latestAssistant?.content || ''
+        );
+
       const results =
+        !isRefusal &&
         Array.isArray(
           metadata?.retrieval_results
         )
@@ -351,6 +403,7 @@ export default function ChatPage() {
 
 
       const sources =
+        !isRefusal &&
         Array.isArray(
           metadata?.sources
         )
@@ -1359,11 +1412,38 @@ export default function ChatPage() {
      ================================================================= */
 
   const handleSelectSource =
-    (source) => {
+    (source, message) => {
 
       if (!source) {
         return;
       }
+
+
+      /*
+       * IMPORTANT:
+       * A source belongs to the assistant message that rendered it.
+       * Do not use the global currentResults here because that state
+       * represents the most recently active retrieval set, not
+       * necessarily the retrieval set for the source being clicked.
+       *
+       * Using the message's own retrieval_results keeps the Context
+       * Inspector scoped to the historical response the user clicked.
+       */
+      const messageResults =
+        Array.isArray(
+          message?.retrieval_results
+        )
+          ? message.retrieval_results
+          : [];
+
+
+      /*
+       * Keep the inspector's "All Matches" list synchronized with
+       * the message whose source was selected.
+       */
+      setCurrentResults(
+        messageResults
+      );
 
 
       const sourceIdentifier =
@@ -1375,10 +1455,13 @@ export default function ChatPage() {
       /*
        * Match by chunk ID first.
        */
-      if (sourceIdentifier) {
+      if (
+        sourceIdentifier &&
+        messageResults.length > 0
+      ) {
 
         const matchingResult =
-          currentResults.find(
+          messageResults.find(
             (result) => {
 
               const resultIdentifier =
@@ -1417,10 +1500,13 @@ export default function ChatPage() {
         null;
 
 
-      if (sourceFilename) {
+      if (
+        sourceFilename &&
+        messageResults.length > 0
+      ) {
 
         const filenameMatch =
-          currentResults.find(
+          messageResults.find(
             (result) =>
               result?.metadata?.filename ===
               sourceFilename
@@ -1440,6 +1526,9 @@ export default function ChatPage() {
 
       /*
        * Final fallback.
+       *
+       * This preserves the previous behavior for source objects that
+       * already contain their own inspector data.
        */
       setSelectedSource(
         source
@@ -2930,31 +3019,46 @@ export default function ChatPage() {
 
                           const sourceId =
                             source?.chunk_id ||
+                            source?.document_chunk_id ||
                             source?.id ||
                             source?.source ||
-                            index;
+                            `result-${index}`;
 
 
                           const selectedId =
                             selectedSource?.chunk_id ||
+                            selectedSource?.document_chunk_id ||
                             selectedSource?.id ||
                             selectedSource?.source ||
                             null;
 
+                          // When the retrieved records contain duplicate or
+                          // fallback identifiers (for example the same
+                          // filename), use object identity for the current
+                          // result set so only the clicked chunk is selected.
+                          const selectedIsCurrentResult =
+                            currentResults.includes(
+                              selectedSource
+                            );
 
                           const isSelected =
-                            String(
-                              selectedId
-                            ) ===
-                            String(
-                              sourceId
-                            );
+                            selectedIsCurrentResult
+                              ? source === selectedSource
+                              : (
+                                  selectedId !== null &&
+                                  String(
+                                    selectedId
+                                  ) ===
+                                  String(
+                                    sourceId
+                                  )
+                                );
 
 
                           return (
                             <div
                               key={
-                                sourceId
+                                `${sourceId}-${index}`
                               }
                               onClick={() =>
                                 setSelectedSource(

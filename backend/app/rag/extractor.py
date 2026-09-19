@@ -39,6 +39,229 @@ def select_file():
 
     return file_path
 
+# -------------------------------------------------------------------
+# Generic table extraction helpers
+# -------------------------------------------------------------------
+
+def _normalize_table_cell(value):
+    """Normalize a table cell without changing its meaning."""
+    if value is None:
+        return ""
+
+    text = re.sub(r"\s+", " ", str(value)).strip()
+    return text
+
+
+def _table_block_text(table, table_index):
+    """
+    Serialize a native document table into a self-contained, row-aware block.
+
+    Every row repeats the column/header relationship so retrieval remains
+    meaningful even when a large table is later split into separate chunks.
+    This representation is intentionally domain-agnostic.
+    """
+    try:
+        rows = table.extract()
+    except Exception as error:
+        logger.warning(
+            "[TABLE] Could not extract table %d: %s",
+            table_index,
+            error,
+        )
+        return ""
+
+    if not rows:
+        return ""
+
+    normalized_rows = []
+    max_columns = 0
+
+    for row in rows:
+        if not row:
+            continue
+
+        values = [
+            _normalize_table_cell(cell)
+            for cell in row
+        ]
+        normalized_rows.append(values)
+        max_columns = max(max_columns, len(values))
+
+    if not normalized_rows or max_columns == 0:
+        return ""
+
+    headers = list(normalized_rows[0])
+    headers.extend(
+        [
+            f"Column {index + 1}"
+            for index in range(len(headers), max_columns)
+        ]
+    )
+
+    # Generic fallback when the first row does not contain usable headers.
+    for index, header in enumerate(headers):
+        if not header:
+            headers[index] = f"Column {index + 1}"
+
+    lines = [
+        "[TABLE START]",
+        f"Table {table_index + 1} columns: "
+        + " | ".join(headers),
+    ]
+
+    data_rows = normalized_rows[1:]
+
+    # If a table has no clear header row, preserve the first row as data too.
+    if not data_rows:
+        data_rows = normalized_rows
+
+    for row_index, row in enumerate(data_rows, start=1):
+        padded = list(row) + [""] * (max_columns - len(row))
+        pairs = [
+            f"{headers[column_index]} = {padded[column_index]}"
+            for column_index in range(max_columns)
+            if padded[column_index]
+        ]
+
+        if pairs:
+            lines.append(
+                f"Table {table_index + 1} row {row_index}: "
+                + " | ".join(pairs)
+            )
+
+    lines.append("[TABLE END]")
+    return "\n".join(lines)
+
+
+def _table_bboxes(page):
+    """Return native PyMuPDF table objects and their bounding boxes."""
+    try:
+        finder = page.find_tables()
+        tables = list(finder.tables or [])
+    except Exception as error:
+        logger.debug(
+            "[TABLE] Native table detection unavailable on page: %s",
+            error,
+        )
+        return []
+
+    result = []
+    for table_index, table in enumerate(tables):
+        bbox = getattr(table, "bbox", None)
+        if not bbox or len(bbox) < 4:
+            continue
+
+        try:
+            result.append(
+                {
+                    "index": table_index,
+                    "table": table,
+                    "bbox": tuple(float(value) for value in bbox[:4]),
+                }
+            )
+        except (TypeError, ValueError):
+            continue
+
+    return result
+
+
+
+def _extract_pdf_tables(page):
+    """Return structured table text detected by PyMuPDF on a native-text page."""
+    table_infos = _table_bboxes(page)
+    if not table_infos:
+        return []
+
+    table_blocks = []
+
+    for table_info in table_infos:
+        table_text = _table_block_text(
+            table_info["table"],
+            table_info["index"],
+        )
+        if table_text:
+            table_blocks.append(table_text)
+
+    return table_blocks
+
+
+def _extract_docx_tables(document):
+    """
+    Extract DOCX tables into the same generic row-aware representation used
+    for PDFs. Native paragraphs remain unchanged.
+    """
+    table_blocks = []
+
+    for table_index, table in enumerate(document.tables):
+        try:
+            rows = []
+            for row in table.rows:
+                rows.append([
+                    _normalize_table_cell(cell.text)
+                    for cell in row.cells
+                ])
+
+            if not rows:
+                continue
+
+            normalized_rows = [
+                row
+                for row in rows
+                if any(row)
+            ]
+
+            if not normalized_rows:
+                continue
+
+            max_columns = max(
+                len(row)
+                for row in normalized_rows
+            )
+
+            headers = list(normalized_rows[0])
+            headers.extend(
+                [
+                    f"Column {index + 1}"
+                    for index in range(len(headers), max_columns)
+                ]
+            )
+
+            for index, header in enumerate(headers):
+                if not header:
+                    headers[index] = f"Column {index + 1}"
+
+            lines = [
+                "[TABLE START]",
+                f"Table {table_index + 1} columns: "
+                + " | ".join(headers),
+            ]
+
+            for row_index, row in enumerate(normalized_rows[1:], start=1):
+                padded = list(row) + [""] * (max_columns - len(row))
+                pairs = [
+                    f"{headers[column_index]} = {padded[column_index]}"
+                    for column_index in range(max_columns)
+                    if padded[column_index]
+                ]
+                if pairs:
+                    lines.append(
+                        f"Table {table_index + 1} row {row_index}: "
+                        + " | ".join(pairs)
+                    )
+
+            lines.append("[TABLE END]")
+            table_blocks.append("\n".join(lines))
+
+        except Exception as error:
+            logger.warning(
+                "[DOCX] Failed to extract table %d: %s",
+                table_index,
+                error,
+            )
+
+    return table_blocks
+
+
 # PDF extraction
 def extract_pdf(file_path, page_progress_callback=None):
     """
@@ -77,11 +300,19 @@ def extract_pdf(file_path, page_progress_callback=None):
             page_number = page_index + 1
             page = pdf[page_index]
 
-            # First attempt: native PDF text extraction
+            # First attempt: native PDF text extraction.
             native_text = page.get_text("text") or ""
             native_text = native_text.strip()
 
-            if len(native_text) >= MIN_NATIVE_TEXT_CHARS:
+            # Detect native tables before storing page text so table values can
+            # also be provided as explicit row/column relationships. Keep the
+            # original native text unchanged to avoid altering existing PDF
+            # reading order or list/bullet extraction behavior.
+            table_blocks = []
+            if native_text:
+                table_blocks = _extract_pdf_tables(page)
+
+            if len(native_text) >= MIN_NATIVE_TEXT_CHARS or table_blocks:
                 logger.info(
                     "[PDF] Page %d/%d: native text found "
                     "(%d chars) - OCR skipped",
@@ -90,9 +321,36 @@ def extract_pdf(file_path, page_progress_callback=None):
                     len(native_text)
                 )
 
+                page_text_parts = []
+
+                # Put structured table evidence before flattened page text.
+                # The prompt explicitly instructs the LLM to prefer this
+                # representation for table-value questions.
+                if table_blocks:
+                    page_text_parts.append(
+                        "[STRUCTURED TABLE EVIDENCE]\n"
+                        + "\n\n".join(table_blocks)
+                        + "\n[END STRUCTURED TABLE EVIDENCE]"
+                    )
+                    logger.info(
+                        "[TABLE] Page %d/%d: detected %d native table(s)",
+                        page_number,
+                        total_pages,
+                        len(table_blocks),
+                    )
+
+                if native_text:
+                    page_text_parts.append(native_text)
+
+                page_content = "\n\n".join(
+                    part.strip()
+                    for part in page_text_parts
+                    if part and part.strip()
+                )
+
                 text_parts.append(
                     f"\n--- Page {page_number} ---\n"
-                    f"{native_text}"
+                    f"{page_content}"
                 )
 
                 page_metadata.append(
@@ -291,6 +549,13 @@ def extract_docx(file_path):
 
         if paragraph_text:
             text += paragraph_text + "\n"
+
+    # Preserve DOCX tables as explicit row/column relationships. The existing
+    # paragraph extraction remains unchanged; table blocks are appended only
+    # when tables are actually present.
+    docx_table_blocks = _extract_docx_tables(document)
+    if docx_table_blocks:
+        text += "\n" + "\n\n".join(docx_table_blocks) + "\n"
 
     image_count = 0
     MAX_IMAGES = 20
@@ -561,25 +826,154 @@ def _strip_bullet(text):
     return re.sub(r"^[•·◦▪‣⁃\-*–—\s]+", "", stripped).strip()
 
 
+def _numbered_prefix(text):
+    """Return a leading numeric list/heading marker, if present."""
+    match = re.match(
+        r"^\s*(\d{1,2})\s*[.)]\s+\S+",
+        str(text or ""),
+    )
+    if not match:
+        return None
+    try:
+        return int(match.group(1))
+    except (TypeError, ValueError):
+        return None
+
+
 def _is_numbered_heading(text):
     stripped = str(text or "").strip()
     if not stripped or _is_bullet_item(stripped):
         return False
-    return bool(re.match(r"^\s*\d{1,2}\s*[.)]\s+\S+", stripped))
+    return _numbered_prefix(stripped) is not None
+
+
+def _is_strong_textual_heading(text):
+    """Detect compact title-like headings without document-specific words."""
+    stripped = str(text or "").strip()
+    if not stripped or _is_bullet_item(stripped):
+        return False
+
+    words = stripped.split()
+    if not 1 <= len(words) <= 6:
+        return False
+
+    # Sentence-like lines are body content, not headings.  Question headings
+    # are intentionally allowed because handwritten notes often use them.
+    if stripped.endswith((".", ",", ";", ":")) and not stripped.endswith("?"):
+        return False
+
+    alpha = [char for char in stripped if char.isalpha()]
+    if not alpha:
+        return False
+
+    title_case_words = sum(
+        1
+        for word in words
+        if word and word[0].isupper()
+    )
+    title_ratio = title_case_words / max(1, len(words))
+
+    upper_ratio = sum(char.isupper() for char in alpha) / len(alpha)
+
+    # Strong signals for compact section labels:
+    #   - very short title-like labels (for example "Benefits" or
+    #     "Key Features")
+    #   - clearly title-cased multi-word headings
+    #   - all-caps labels
+    #   - short question-like headings
+    #
+    # Do not treat a generic short sentence such as "Protect the
+    # environment" as a heading merely because it is short. OCR often
+    # drops bullet markers from handwritten lists, so word-count alone is
+    # not a reliable heading signal.
+    if stripped.endswith("?") and len(words) <= 8:
+        return True
+
+    if len(words) <= 2 and title_ratio >= 0.50:
+        return True
+
+    return (
+        title_ratio >= 0.80
+        or upper_ratio >= 0.55
+    )
+
+
+def _mark_numbered_list_sequences(column_blocks, median_height):
+    """Mark repeated numbered blocks as list items rather than headings."""
+    numbered = []
+
+    for index, block in enumerate(column_blocks):
+        number = _numbered_prefix(block.get("text"))
+        if number is None:
+            continue
+
+        geometry = block.get("geometry") or {}
+        numbered.append((index, number, geometry))
+
+    if len(numbered) < 2:
+        return
+
+    for (left_index, left_number, left_geometry), (right_index, right_number, right_geometry) in zip(
+        numbered,
+        numbered[1:],
+    ):
+        if right_number != left_number + 1:
+            continue
+
+        if not left_geometry or not right_geometry:
+            continue
+
+        vertical_gap = float(right_geometry.get("y1") or 0.0) - float(
+            left_geometry.get("y2") or 0.0
+        )
+        if vertical_gap < 0:
+            vertical_gap = 0.0
+
+        left_height = float(left_geometry.get("height") or 0.0)
+        right_height = float(right_geometry.get("height") or 0.0)
+        height_ratio = max(
+            left_height,
+            right_height,
+            1.0,
+        ) / max(
+            min(left_height, right_height) if min(left_height, right_height) > 0 else 1.0,
+            1.0,
+        )
+
+        # Consecutive numbered lines that sit reasonably close together and
+        # share similar text geometry form a numbered procedure/list.
+        if (
+            vertical_gap <= max(median_height * 5.0, 120.0)
+            and height_ratio <= 1.60
+        ):
+            column_blocks[left_index]["is_numbered_list_item"] = True
+            column_blocks[right_index]["is_numbered_list_item"] = True
 
 
 def _looks_like_heading(block, median_height):
     """
     Detect a section/title-like OCR block without knowing the document domain.
 
-    Numbered headings are strongest.  Other short, visually larger title-like
-    lines are accepted conservatively so handwritten/non-numbered notes work
-    without requiring document-specific keywords.
+    Numbered blocks that are part of a consecutive list/procedure are explicitly
+    excluded. Short title-like lines are also accepted even when handwriting
+    does not produce a useful font-size difference.
     """
     text = str(block.get("text") or "").strip()
     if not text or _is_bullet_item(text):
         return False
+
+    # A sequence such as 1) ..., 2) ..., 3) ... is list/procedure content, not
+    # three independent section headings.
+    if block.get("is_numbered_list_item"):
+        return False
+
     if _is_numbered_heading(text):
+        return True
+
+    # Compact textual headings such as "Key Features", "Benefits", or
+    # "How it works?" are commonly represented by OCR with the same font size
+    # as body text. Recognize strong title-like wording generically.
+    if _is_strong_textual_heading(text):
         return True
 
     geometry = block.get("geometry") or {}
@@ -593,8 +987,6 @@ def _looks_like_heading(block, median_height):
     if text.endswith((".", ",", ";", ":")):
         return False
 
-    # Title-like text usually has multiple words with relatively little
-    # punctuation.  Allow question-mark headings such as "What is ML?".
     alpha = [char for char in text if char.isalpha()]
     if not alpha:
         return False
@@ -605,10 +997,15 @@ def _looks_like_heading(block, median_height):
         if word and word[0].isupper()
     )
 
+    word_count = len(text.split())
+    title_ratio = title_case_words / max(1, word_count)
+
+    # Geometry is a secondary signal. It must agree with actual heading-like
+    # typography rather than classifying every short OCR line as a heading.
     return (
-        upper_ratio >= 0.45
-        or title_case_words >= max(1, len(text.split()) // 2)
-        or len(text.split()) <= 5
+        upper_ratio >= 0.55
+        or title_ratio >= 0.80
+        or (word_count <= 2 and title_ratio >= 0.50)
     )
 
 
@@ -698,14 +1095,59 @@ def _assign_visual_columns(blocks, image_width):
     """
     Infer visual columns adaptively from OCR geometry.
 
-    Unlike the previous implementation, this does not blindly trust the OCR
-    engine's column labels.  It detects strong vertical whitespace between
-    x-center clusters and only accepts a split when both sides show evidence
-    of independently populated, vertically overlapping regions.
+    When the OCR service has already produced a reliable ``layout_column``
+    label, preserve it. Otherwise, infer columns from geometry as a fallback.
 
     This is deliberately domain-agnostic and supports one-column handwritten
     notes, two-column study notes, and multi-panel screenshots.
     """
+    # The OCR service already performs a layout pass and may provide reliable
+    # column labels. Prefer those labels when they cover most geometric blocks
+    # and do not create singleton columns. Re-inference should be a fallback,
+    # not a second competing column detector.
+    provided = [
+        block.get("layout_column")
+        for block in blocks
+        if block.get("geometry") and block.get("layout_column") is not None
+    ]
+
+    geometric_count = sum(
+        1
+        for block in blocks
+        if block.get("geometry")
+    )
+
+    if provided and geometric_count > 0:
+        coverage = len(provided) / geometric_count
+        normalized_labels = []
+
+        for value in provided:
+            try:
+                normalized_labels.append(int(value))
+            except (TypeError, ValueError):
+                normalized_labels.append(str(value))
+
+        label_counts = {}
+        for label in normalized_labels:
+            label_counts[label] = label_counts.get(label, 0) + 1
+
+        valid_labels = (
+            1 <= len(label_counts) <= 4
+            and all(count >= 2 for count in label_counts.values())
+        )
+
+        if coverage >= 0.70 and valid_labels:
+            for block in blocks:
+                label = block.get("layout_column")
+                if label is None:
+                    block["visual_column"] = 0
+                    continue
+                try:
+                    block["visual_column"] = int(label)
+                except (TypeError, ValueError):
+                    block["visual_column"] = str(label)
+            return
+
     geometric = [
         block for block in blocks
         if block.get("geometry")
@@ -926,8 +1368,6 @@ def _clean_list_section_blocks(heading, body_blocks):
             continue
 
         previous = cleaned[-1]
-        if not _is_bullet_item(previous.get("text")):
-            continue
 
         if not _same_visual_column(previous, block):
             continue
@@ -946,19 +1386,22 @@ def _clean_list_section_blocks(heading, body_blocks):
             median_height * 3.0,
         )
 
-        starts_lower = text[:1].islower()
-        short_fragment = len(text) <= 80
+        short_fragment = len(text) <= 100
         no_new_heading = not _looks_like_heading(
             block,
             median_height,
         )
 
+        # OCR can drop a bullet from an otherwise valid list item. Preserve
+        # aligned non-heading lines when they occur inside the same list
+        # rhythm, regardless of capitalization. Requiring a short block,
+        # nearby vertical position, and matching column keeps this generic
+        # without hard-coding document vocabulary.
         if (
             0.0 <= vertical_gap <= allowed_gap
             and x_gap <= allowed_x
             and short_fragment
             and no_new_heading
-            and starts_lower
         ):
             cleaned.append(block)
 
@@ -1045,6 +1488,29 @@ def _build_visual_sections(blocks, image_width, image_height):
     median_height = _median(heights, max(8.0, image_height * 0.01))
 
     _assign_visual_columns(normalized, image_width)
+
+    # Mark consecutive numbered procedures/lists before heading detection.
+    # This prevents lines such as "1) ...", "2) ...", "3) ..." from being
+    # interpreted as three section headings and absorbing the next real heading.
+    temporary_columns = {}
+    for block in normalized:
+        temporary_columns.setdefault(
+            block.get("visual_column", 0),
+            [],
+        ).append(block)
+
+    for column_blocks in temporary_columns.values():
+        column_blocks.sort(
+            key=lambda item: (
+                float((item.get("geometry") or {}).get("y1") or 0.0),
+                float((item.get("geometry") or {}).get("x1") or 0.0),
+                item.get("original_index", 0),
+            )
+        )
+        _mark_numbered_list_sequences(
+            column_blocks,
+            median_height,
+        )
 
     # A very wide title/header is treated as a global region rather than being
     # forced into a left/right column.

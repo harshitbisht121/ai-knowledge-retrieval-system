@@ -12,11 +12,15 @@ already system-wide in the current schema (no user_id on that table).
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.models import User, KnowledgeBaseDocument
+from app.core.config import UPLOAD_FOLDER
+from app.rag.chromadb_service import delete_all_documents_for_user
 from app.analytics.models import QueryAnalytics
 from app.knowledge_gaps.models import KnowledgeGap
 from app.admin.schemas import (
@@ -147,6 +151,7 @@ def get_users_summary(db: Session) -> list[AdminUserSummary]:
                 email=user.email,
                 full_name=user.full_name,
                 role=user.role,
+                is_active=user.is_active,
                 document_count=document_count,
                 query_count=query_count,
                 created_at=user.created_at,
@@ -182,6 +187,7 @@ def get_user_detail(db: Session, user_id: str) -> AdminUserDetail:
         email=user.email,
         full_name=user.full_name,
         role=user.role,
+        is_active=user.is_active,
         created_at=user.created_at,
         document_count=len(documents),
         query_count=query_count,
@@ -197,6 +203,128 @@ def get_user_detail(db: Session, user_id: str) -> AdminUserDetail:
         ],
     )
 
+
+
+def _get_user_or_404(db: Session, user_id: str) -> User:
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found.",
+        )
+    return user
+
+
+def update_user_status(
+    db: Session,
+    user_id: str,
+    is_active: bool,
+    acting_admin: User,
+) -> AdminUserDetail:
+    """Block or unblock a user without changing their stored data."""
+    user = _get_user_or_404(db, user_id)
+
+    if user.id == acting_admin.id and not is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You cannot block your own administrator account.",
+        )
+
+    user.is_active = is_active
+    db.commit()
+    db.refresh(user)
+    return get_user_detail(db, user_id)
+
+
+def update_user_role(
+    db: Session,
+    user_id: str,
+    role: str,
+    acting_admin: User,
+) -> AdminUserDetail:
+    """Promote a user to Admin or demote an Admin back to User."""
+    user = _get_user_or_404(db, user_id)
+
+    if user.id == acting_admin.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You cannot change your own administrator role.",
+        )
+
+    normalized_role = (role or "").strip().lower()
+    if normalized_role not in {"admin", "user"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Role must be either Admin or User.",
+        )
+
+    new_role = "Admin" if normalized_role == "admin" else "User"
+
+    if user.role == new_role:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"User is already a {new_role}.",
+        )
+
+    user.role = new_role
+    db.commit()
+    db.refresh(user)
+    return get_user_detail(db, user_id)
+
+
+# Backward-compatible alias for existing internal callers.
+def promote_user_to_admin(
+    db: Session,
+    user_id: str,
+    acting_admin: User,
+    role: str = "Admin",
+) -> AdminUserDetail:
+    return update_user_role(db, user_id, role, acting_admin)
+
+
+def delete_user_as_admin(
+    db: Session,
+    user_id: str,
+    acting_admin: User,
+) -> None:
+    """Permanently remove a user and clean their user-owned vectors first."""
+    user = _get_user_or_404(db, user_id)
+
+    if user.id == acting_admin.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You cannot remove your own administrator account.",
+        )
+
+    documents = (
+        db.query(KnowledgeBaseDocument)
+        .filter(KnowledgeBaseDocument.user_id == user.id)
+        .all()
+    )
+
+    try:
+        # Remove all vectors tagged with this user before deleting the
+        # relational records. Older vectors without user_id are deliberately
+        # left untouched because ownership cannot be determined safely.
+        delete_all_documents_for_user(str(user.id))
+
+        for document in documents:
+            # Uploaded files are stored under the backend upload directory
+            # using the generated database filename. Never trust a client
+            # supplied path here; resolve only the basename stored by the app.
+            if document.filename:
+                uploaded_file = UPLOAD_FOLDER / Path(document.filename).name
+                if uploaded_file.exists():
+                    uploaded_file.unlink()
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to clean the user's knowledge-base vectors. Account was not deleted.",
+        ) from exc
+
+    db.delete(user)
+    db.commit()
 
 def get_all_documents(db: Session) -> list[AdminDocumentSummary]:
     documents = (
