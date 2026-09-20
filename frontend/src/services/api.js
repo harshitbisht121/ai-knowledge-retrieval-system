@@ -157,6 +157,7 @@ export async function loginUser(email, password) {
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json',
+        'ngrok-skip-browser-warning': 'true',
       },
       body: JSON.stringify({
         email: email.trim(),
@@ -184,6 +185,7 @@ export async function registerUser(
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json',
+        'ngrok-skip-browser-warning': 'true',
       },
       body: JSON.stringify({
         full_name: fullName.trim(),
@@ -214,6 +216,7 @@ export async function getCurrentUser() {
       headers: {
         Accept: 'application/json',
         Authorization: `Bearer ${token}`,
+        'ngrok-skip-browser-warning': 'true',
       },
     },
   );
@@ -245,6 +248,7 @@ export async function logoutUser(token = null) {
       headers: {
         Accept: 'application/json',
         Authorization: `Bearer ${authToken}`,
+        'ngrok-skip-browser-warning': 'true',
       },
     },
   );
