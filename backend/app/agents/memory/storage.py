@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.models import Conversation, ConversationMessage
@@ -84,6 +85,11 @@ def save_turn(
 
     db.add(user_message)
 
+    # Flush the user message first so its autoincremented ID is
+    # permanently before the assistant message ID.  Message IDs are the
+    # deterministic ordering key used when history/memory is read back.
+    db.flush()
+
     # ---------------------------------------------------------------
     # Assistant message
     # ---------------------------------------------------------------
@@ -99,23 +105,18 @@ def save_turn(
         )
 
         db.add(assistant_message)
+        db.flush()
 
     # ---------------------------------------------------------------
-    # Force conversation timestamp update.
+    # Explicitly advance conversation activity timestamp.
     #
-    # This ensures updated_at changes whenever a message
-    # is added, so the latest active conversation remains first.
+    # Do not read the existing timestamp and assign it back.  That leaves
+    # updated_at unchanged and can cause the conversation list to reopen an
+    # older conversation as the "latest" one.  func.now() is evaluated by
+    # the database for this write.
     # ---------------------------------------------------------------
 
-    conversation.updated_at = db.execute(
-        Conversation.__table__.select()
-        .with_only_columns(
-            Conversation.updated_at
-        )
-        .where(
-            Conversation.id == turn.conversation_id
-        )
-    ).scalar_one_or_none() or conversation.updated_at
+    conversation.updated_at = func.now()
 
     db.commit()
 
@@ -125,7 +126,11 @@ def get_history(
     conversation_id: str,
 ):
     """
-    Return all messages for a conversation.
+    Return all messages for a conversation in deterministic insertion order.
+
+    The integer message ID is the database-generated sequence and is more
+    reliable than created_at for ordering a user/assistant pair because both
+    rows can share the same database timestamp.
     """
 
     messages = (
@@ -135,7 +140,7 @@ def get_history(
             == conversation_id
         )
         .order_by(
-            ConversationMessage.created_at.asc()
+            ConversationMessage.id.asc()
         )
         .all()
     )

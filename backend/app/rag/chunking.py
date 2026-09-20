@@ -135,6 +135,98 @@ def _split_table_block(table_block: str) -> list[str]:
     return chunks
 
 
+# CSV markers emitted by app.rag.extractor.extract_csv().
+CSV_ROW_MARKER_PATTERN = re.compile(
+    r"^\s*---\s*Row\s+(\d+)\s*---\s*$",
+    re.IGNORECASE,
+)
+CSV_COLUMNS_MARKER = "--- CSV Columns ---"
+
+
+def _split_csv_rows(text: str) -> list[dict[str, str]]:
+    """
+    Convert extractor-generated CSV text into atomic row records.
+
+    CSV is record-oriented data. Splitting it with a character-count
+    text splitter can place the tail of one row beside the beginning of
+    another row, allowing downstream generation to mix field values.
+
+    Each CSV row is therefore kept as one retrieval unit. The row number,
+    column header line, and optional filename prefix are retained so the
+    record remains self-describing and searchable. This is deliberately
+    schema-agnostic: no column names are hard-coded here.
+    """
+    if not text or not text.strip():
+        return []
+
+    lines = text.splitlines()
+    row_positions: list[tuple[int, int]] = []
+
+    for index, line in enumerate(lines):
+        match = CSV_ROW_MARKER_PATTERN.match(line)
+        if match:
+            row_positions.append((index, int(match.group(1))))
+
+    if not row_positions:
+        return []
+
+    # Preserve only the self-describing prefix that is useful to every row.
+    # In the current extractor this is the filename and CSV column header.
+    prefix_lines: list[str] = []
+    for line in lines[:row_positions[0][0]]:
+        stripped = line.strip()
+        if not stripped:
+            continue
+
+        if stripped.lower() == CSV_COLUMNS_MARKER.lower():
+            prefix_lines.append(stripped)
+            continue
+
+        # The extractor may add a searchable file-name line before the CSV.
+        if stripped.lower().startswith("file name:"):
+            prefix_lines.append(stripped)
+
+        # Keep the actual column header immediately following the marker.
+        elif prefix_lines and prefix_lines[-1].lower() == CSV_COLUMNS_MARKER.lower():
+            prefix_lines.append(stripped)
+
+    records: list[dict[str, str]] = []
+
+    for position, (start_index, row_number) in enumerate(row_positions):
+        end_index = (
+            row_positions[position + 1][0]
+            if position + 1 < len(row_positions)
+            else len(lines)
+        )
+
+        row_lines = [
+            line.strip()
+            for line in lines[start_index:end_index]
+            if line.strip()
+        ]
+
+        if not row_lines:
+            continue
+
+        # Guard against malformed text containing another structural marker
+        # inside a row. The row marker itself stays as the record boundary.
+        content_lines = prefix_lines + row_lines
+        content = "\n".join(content_lines).strip()
+
+        if not content:
+            continue
+
+        records.append(
+            {
+                "content": content,
+                "record_type": "csv_row",
+                "csv_row_number": str(row_number),
+            }
+        )
+
+    return records
+
+
 def _split_text_preserving_tables(text: str) -> list[str]:
     """Split text while preventing extractor-emitted tables from being split arbitrarily."""
     spans = _find_table_blocks(text)
@@ -414,17 +506,41 @@ def _chunk_section_records(section: str) -> list[dict[str, str]]:
     return records
 
 
-def chunk_text_with_sections(text: str) -> list[dict[str, str]]:
+def chunk_text_with_sections(
+    text: str,
+    file_type: str | None = None,
+) -> list[dict[str, str]]:
     """
-    Return the same retrieval chunks as the existing chunker plus an optional
-    ``section_heading`` for chunks belonging to a clearly detected logical
-    section.
+    Return retrieval chunks with optional structural metadata.
 
-    This is an ingestion-time metadata path. The existing ``chunk_text`` API
-    remains unchanged so unrelated callers keep their established behavior.
+    CSV is handled separately because a CSV row is an atomic record rather
+    than ordinary prose. Other file types retain the established chunking
+    behavior, so this change does not alter the project's PDF/DOCX/TXT/image
+    chunking strategy.
+
+    Args:
+        text: Extracted document text.
+        file_type: Optional extension such as ``"csv"`` or ``".csv"``.
     """
     if not text or not text.strip():
         return []
+
+    normalized_file_type = (file_type or "").strip().lower()
+    if normalized_file_type.startswith("."):
+        normalized_file_type = normalized_file_type[1:]
+
+    # Critical CSV fix: one complete row = one retrieval chunk.
+    if normalized_file_type == "csv":
+        csv_records = _split_csv_rows(text)
+        if csv_records:
+            return csv_records
+
+    # Defensive fallback: if the caller forgot to pass file_type but the
+    # extractor markers are present, still preserve CSV row boundaries.
+    if "--- CSV Columns ---" in text and CSV_ROW_MARKER_PATTERN.search(text):
+        csv_records = _split_csv_rows(text)
+        if csv_records:
+            return csv_records
 
     if LAYOUT_COLUMN_BREAK in text:
         column_sections = [

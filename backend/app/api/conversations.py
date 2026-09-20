@@ -144,6 +144,9 @@ def list_conversations(
 ):
     """
     Return only conversations owned by the authenticated user.
+
+    Conversations are ordered by explicit activity time with deterministic
+    tie-breakers so equal timestamps cannot change the selected conversation.
     """
 
     conversations = (
@@ -153,6 +156,8 @@ def list_conversations(
         )
         .order_by(
             Conversation.updated_at.desc(),
+            Conversation.created_at.desc(),
+            Conversation.id.desc(),
         )
         .all()
     )
@@ -185,6 +190,10 @@ def get_conversation(
     """
     Return a conversation and its messages only when owned
     by the authenticated user.
+
+    Messages are returned by their database sequence ID.  This guarantees
+    that a persisted user/assistant pair is read in the same order in which
+    it was inserted, even when created_at values are identical.
     """
 
     conversation = _get_owned_conversation(
@@ -199,7 +208,7 @@ def get_conversation(
             ConversationMessage.conversation_id == conversation.id,
         )
         .order_by(
-            ConversationMessage.created_at.asc(),
+            ConversationMessage.id.asc(),
         )
         .all()
     )
