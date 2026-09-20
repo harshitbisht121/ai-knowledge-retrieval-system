@@ -63,6 +63,7 @@ export function getAuthHeaders(includeJsonContentType = false) {
   }
 
   headers.Accept = 'application/json';
+  headers['ngrok-skip-browser-warning'] = 'true';
 
   const token = getAuthToken();
 
@@ -339,6 +340,11 @@ export async function uploadDocument(
       'Accept',
       'application/json',
     );
+
+    xhr.setRequestHeader(
+      'ngrok-skip-browser-warning',
+      'true',
+);
 
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) {

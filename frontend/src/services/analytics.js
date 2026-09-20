@@ -15,7 +15,10 @@ const getToken = () =>
   sessionStorage.getItem('qn_auth_token');
 
 const authHeaders = () => {
-  const headers = { Accept: 'application/json' };
+  const headers = {
+    Accept: 'application/json',
+    'ngrok-skip-browser-warning': 'true',
+  };
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
   return headers;
